@@ -1,0 +1,19 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 43d312b4fd4274f7618ece924241a464
+          command: pages deploy . --project-name=hifz --commit-dirty=true
