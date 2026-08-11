@@ -831,6 +831,7 @@ const I18N = {
     pagePos: (i, n) => `${toDigits(i)} / ${toDigits(n)}`,
     bookmarkHere: 'ضع علامة هنا',
     toastBookmarked: 'تم حفظ موضعك 🔖',
+    toastUnbookmarked: 'تم إلغاء العلامة',
     continueBookmark: (name, page) => `متابعة ${name} · صفحة ${toDigits(page)}`,
     stoppedHere: '🔖 توقفت هنا',
     langBtn: 'EN',          // shown while UI is Arabic -> switch to English
@@ -881,6 +882,7 @@ const I18N = {
     pagePos: (i, n) => `${i} / ${n}`,
     bookmarkHere: 'Bookmark this page',
     toastBookmarked: 'Position saved 🔖',
+    toastUnbookmarked: 'Bookmark removed',
     continueBookmark: (name, page) => `Continue ${name} · Page ${page}`,
     stoppedHere: '🔖 You stopped here',
     langBtn: 'ع',           // shown while UI is English -> switch to Arabic
@@ -1540,18 +1542,27 @@ function syncTopJuzBadge() {
 /* ----- Bookmark ("stopped here") ----- */
 // Saves the exact page + first ayah of the page currently open in read mode,
 // so the user can jump straight back to it later from the home screen.
+// Toggles the bookmark for the page currently open: sets it if this page isn't
+// the saved spot yet, clears it if you tap it again on the already-bookmarked page.
 function setBookmarkHere() {
   if (!state.surah || !state.readPages) return;
   const pg = state.readPages[state.readPageIdx];
-  bookmark = {
-    surah: state.surah.number,
-    surahAr: state.surah.name,
-    surahEn: state.surah.englishName,
-    page: pg.page,
-    ayah: pg.ayahs[0].numberInSurah
-  };
-  LS.set('hifz:bookmark', bookmark);
-  toast(t('toastBookmarked'));
+  const alreadyHere = bookmark && bookmark.surah === state.surah.number && bookmark.page === pg.page;
+  if (alreadyHere) {
+    bookmark = null;
+    LS.set('hifz:bookmark', null);
+    toast(t('toastUnbookmarked'));
+  } else {
+    bookmark = {
+      surah: state.surah.number,
+      surahAr: state.surah.name,
+      surahEn: state.surah.englishName,
+      page: pg.page,
+      ayah: pg.ayahs[0].numberInSurah
+    };
+    LS.set('hifz:bookmark', bookmark);
+    toast(t('toastBookmarked'));
+  }
   refreshReadArea();
 }
 
