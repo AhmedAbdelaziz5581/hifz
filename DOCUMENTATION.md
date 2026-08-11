@@ -1,5 +1,7 @@
 # Hifz (حِفْظ) — Documentation
 
+📑 [**Jump to Table of Contents**](#table-of-contents)
+
 A single-file, client-only web app for memorizing and reading the Quran, with word-by-word
 audio-synced recitation, a paginated mushaf reading view, multi-reciter support, and a
 bilingual (Arabic/English) interface.
