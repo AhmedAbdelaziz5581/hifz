@@ -407,7 +407,7 @@ in the app's green (`--primary-soft`).
 | Static hosting | Cloudflare Pages | Project name `hifz`, default subdomain `hifz-bnb.pages.dev` |
 | DNS + domain | Cloudflare (nameservers) | Domain `hifz-quran.com` registered at GoDaddy, DNS delegated to Cloudflare via nameserver change (`adi.ns.cloudflare.com` / `hugh.ns.cloudflare.com`) |
 | SSL | Cloudflare-managed (Google CA) | Auto-issued once DNS verification completes |
-| CI/CD | GitHub Actions | `.github/workflows/deploy.yml` — deploys on every push to `master` |
+| CI/CD | GitHub Actions | `.github/workflows/deploy.yml` — deploys on every push to `master`. **Live and confirmed working** (see §8.3). |
 
 ### 8.2 How the pieces connect
 
@@ -446,19 +446,27 @@ hifz-bnb.pages.dev, proxied through Cloudflare) serves the new version
 7. Stale GoDaddy "parked domain" `A` records removed; a `CNAME` record
    (`hifz-quran.com` → `hifz-bnb.pages.dev`, proxied) added — done via the Cloudflare
    dashboard, since the CLI's OAuth token only grants `zone:read`, not DNS write access.
-8. `.github/workflows/deploy.yml` added for push-to-deploy automation (requires a
-   `CLOUDFLARE_API_TOKEN` repo secret with **Account → Cloudflare Pages → Edit** permission,
-   created manually via the Cloudflare dashboard since token creation isn't permitted via an
-   OAuth-derived CLI session).
+8. `.github/workflows/deploy.yml` added for push-to-deploy automation, requiring a
+   `CLOUDFLARE_API_TOKEN` repo secret with **Account → Cloudflare Pages → Edit** permission.
+   The token was created manually via the Cloudflare dashboard (token creation isn't
+   permitted via an OAuth-derived CLI session) and stored as a GitHub Actions secret via the
+   dashboard's **Settings → Secrets and variables → Actions** page.
+9. **Auto-deploy verified end-to-end** (2026-08-11): confirmed the secret is present
+   (`gh secret list`), pushed a test commit, and watched GitHub Actions run
+   `wrangler pages deploy` successfully (`gh run list` / `gh run view --log`) and publish a
+   new deployment that `hifz-quran.com` correctly served. From this point on, **every
+   `git push` to `master` auto-deploys** — no manual `wrangler pages deploy` is needed.
 
-### 8.4 Required GitHub repo secret
+### 8.4 GitHub repo secret
 
-| Secret name | Scope needed | Where to create it |
+| Secret name | Scope needed | Status |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | Account → Cloudflare Pages → Edit | dash.cloudflare.com → My Profile → API Tokens → Create Token |
+| `CLOUDFLARE_API_TOKEN` | Account → Cloudflare Pages → Edit | ✅ Set and confirmed working |
 
-Set via: `gh secret set CLOUDFLARE_API_TOKEN` (paste value when prompted), or GitHub repo
-Settings → Secrets and variables → Actions.
+To rotate it later: create a new token at dash.cloudflare.com → My Profile → API Tokens,
+then update the secret with `gh secret set CLOUDFLARE_API_TOKEN --repo AhmedAbdelaziz5581/hifz`
+(paste the new value when prompted), or via the GitHub repo's
+**Settings → Secrets and variables → Actions** page.
 
 ## 9. Local development
 
