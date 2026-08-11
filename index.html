@@ -824,6 +824,19 @@ function toDigits(n) {
 function stripHarakat(s) {
   return s.replace(/[\u0610-\u061A\u064B-\u0652\u0654-\u065F\u0670\u0640\u06D6-\u06ED]/g, '').replace(/\u0671/g, '\u0627');
 }
+// Normalize Arabic text for search matching: strips harakat, then folds letter
+// variants that different keyboards (Persian/Urdu layouts, iOS autocorrect,
+// pasted text) commonly substitute for their standard-Arabic look-alikes \u2014
+// e.g. Persian \u06A9/\u06CC instead of Arabic \u0643/\u064A \u2014 so search isn't defeated by a
+// codepoint mismatch the user can't see or control.
+function normalizeArSearch(s) {
+  return stripHarakat(s)
+    .normalize('NFC')
+    .replace(/[\u0625\u0623\u0622\u0671]/g, '\u0627')
+    .replace(/[\u0649\u06CC]/g, '\u064A')
+    .replace(/\u06A9/g, '\u0643')
+    .replace(/\u0629/g, '\u0647');
+}
 // Drop the leading "سُورَة" word so the index chip shows just the name (e.g. الفاتحة).
 function shortArName(name) {
   const words = name.split(' ');
@@ -1163,11 +1176,11 @@ function renderIndexStrip() {
 
 function renderSurahRows() {
   const q = state.search.trim().toLowerCase();
-  const bareQ = stripHarakat(q);   // ignore diacritics when the query is Arabic
+  const bareQ = normalizeArSearch(q);   // ignore diacritics + keyboard letter-variants
   const rows = surahList
     .filter(s => !q || s.englishName.toLowerCase().includes(q) ||
                  s.englishNameTranslation.toLowerCase().includes(q) ||
-                 stripHarakat(s.name).includes(bareQ) ||
+                 normalizeArSearch(s.name).includes(bareQ) ||
                  String(s.number) === q)
     .map(s => {
       const done = memCountSurah(s.number, s.numberOfAyahs);
