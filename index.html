@@ -1163,9 +1163,11 @@ function renderIndexStrip() {
 
 function renderSurahRows() {
   const q = state.search.trim().toLowerCase();
+  const bareQ = stripHarakat(q);   // ignore diacritics when the query is Arabic
   const rows = surahList
     .filter(s => !q || s.englishName.toLowerCase().includes(q) ||
                  s.englishNameTranslation.toLowerCase().includes(q) ||
+                 stripHarakat(s.name).includes(bareQ) ||
                  String(s.number) === q)
     .map(s => {
       const done = memCountSurah(s.number, s.numberOfAyahs);
