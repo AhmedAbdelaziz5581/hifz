@@ -819,6 +819,11 @@ const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
 function toDigits(n) {
   return lang === 'ar' ? String(n).replace(/[0-9]/g, d => AR_DIGITS[+d]) : String(n);
 }
+// Arabic-Indic digits -> Western (so typing ٢ or ١٢ in the search box works,
+// since the app displays numbers in Arabic-Indic form throughout Arabic mode).
+function fromArDigits(s) {
+  return s.replace(/[٠-٩]/g, d => String(AR_DIGITS.indexOf(d)));
+}
 // Remove Arabic diacritics (harakat) and normalize alef-wasla — makes short
 // names clear and readable at small sizes.
 function stripHarakat(s) {
@@ -1177,11 +1182,13 @@ function renderIndexStrip() {
 function renderSurahRows() {
   const q = state.search.trim().toLowerCase();
   const bareQ = normalizeArSearch(q);   // ignore diacritics + keyboard letter-variants
+  const numQ = fromArDigits(q);         // normalize Arabic-Indic digits (e.g. ٢ -> 2)
+  const isNumeric = numQ !== '' && /^[0-9]+$/.test(numQ);
   const rows = surahList
     .filter(s => !q || s.englishName.toLowerCase().includes(q) ||
                  s.englishNameTranslation.toLowerCase().includes(q) ||
                  normalizeArSearch(s.name).includes(bareQ) ||
-                 String(s.number) === q)
+                 (isNumeric && String(s.number).includes(numQ)))
     .map(s => {
       const done = memCountSurah(s.number, s.numberOfAyahs);
       const full = done === s.numberOfAyahs;
