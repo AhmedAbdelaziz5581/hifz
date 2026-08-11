@@ -3,8 +3,9 @@
 📑 [**Jump to Table of Contents**](#table-of-contents)
 
 A single-file, client-only web app for memorizing and reading the Quran, with word-by-word
-audio-synced recitation, a paginated mushaf reading view, multi-reciter support, and a
-bilingual (Arabic/English) interface.
+audio-synced recitation, a paginated mushaf reading view, multi-reciter support, on-demand
+Tafsir (Quranic exegesis) from trusted scholarly sources, and a bilingual (Arabic/English)
+interface.
 
 **Live app:** https://hifz-quran.com
 **Repository:** https://github.com/AhmedAbdelaziz5581/hifz
@@ -150,7 +151,8 @@ state = {
   revealed: { [numberInSurah]: number },   // memorize mode: words revealed per ayah
   search: '',                   // home screen search box text
   readPages: null | ReadPage[], // read mode: ayahs of `surah` grouped by mushaf page
-  readPageIdx: 0                // read mode: which page (index into readPages) is shown
+  readPageIdx: 0,                // read mode: which page (index into readPages) is shown
+  tafsirAyah: null | number      // read mode: numberInSurah shown in the shared Tafsir panel, or null if closed
 }
 ```
 
@@ -222,6 +224,8 @@ storage is unavailable, e.g. private browsing).
 | `hifz:cache:v4:{n}` | `Surah` | Full cached surah `n` (text, translation, juz, page per ayah). Version-suffixed (`v4`) — bump this suffix whenever the cached shape changes, so old cached entries are transparently refetched instead of breaking. |
 | `hifz:va` | `{ "reciterId:surah:ayah": { url, starts } }` | Cached audio URL + per-word timing, so replays/revisits don't refetch |
 | `hifz:segments` | *(legacy)* | Superseded by `hifz:va`; harmless if still present from an older version |
+| `hifz:tafsirSrc` | number | Selected Tafsir source's Quran.com resource ID (default `14` = Ibn Kathir) |
+| `hifz:tafsirCache` | `{ "tafsirId:surah:ayah": "<sanitized HTML>" }` | Cached, sanitized Tafsir text per source+ayah, so re-opening the same ayah's Tafsir doesn't refetch |
 
 **Practical implications:**
 - Progress does **not** sync across devices or browsers — it's tied to one browser's local
@@ -259,7 +263,28 @@ Returned URLs are sometimes relative (`Alafasy/mp3/...`, prefixed with
 `https://verses.quran.com/`) or protocol-relative (`//mirrors.quranicaudio.com/...`, prefixed
 with `https:`) — `loadVerseAudio()` normalizes both cases.
 
-### 5.3 Fonts
+### 5.3 Quran.com API v4 — Tafsir (exegesis)
+
+- `GET https://api.quran.com/api/v4/tafsirs/{tafsirId}/by_ayah/{surah}:{ayah}` — returns
+  `tafsir.text`, pre-formatted HTML (`<p>` paragraphs, occasional `<span class="blue">` for
+  emphasis) of that scholar's commentary on the given ayah.
+
+Only classical/scholarly-vetted Arabic tafsirs are offered — no user-generated or unverified
+commentary — selectable via the `TAFSIRS` list:
+
+| Resource ID | Author | Notes |
+|---|---|---|
+| `14` (default) | ابن كثير — Ibn Kathir | Widely cited classical tafsir |
+| `16` | الميسر — Al-Muyassar | Modern, concise, King Fahd Complex-produced |
+| `91` | السعدي — As-Sa'di | Modern classical, plain-language |
+| `15` | الطبري — At-Tabari | Early classical, foundational |
+
+**Security note:** the returned `text` is third-party HTML rendered directly into the page via
+`innerHTML`. `sanitizeTafsirHtml()` strips `<script>` tags, inline `on*` event-handler
+attributes, and `javascript:` URLs before it's ever injected — defense in depth, even though
+the source is a reputable, trusted provider rather than arbitrary user input.
+
+### 5.4 Fonts
 
 Google Fonts, loaded via `<link>` in `<head>`: **Amiri Quran** (Arabic Uthmani-style serif,
 used for all Quran text and Arabic UI accents) and **Outfit** (Latin sans-serif, used for the
@@ -326,13 +351,40 @@ page (`refreshReadArea()`) before playing it, and scrolls it into view.
 ### 6.7 Bookmark ("stopped here")
 
 Distinct from `hifz:last` (which just remembers the last surah *opened*, for a lightweight
-"Continue" shortcut). The bookmark is an **explicit** action (tapping the ribbon icon) that
-captures the exact page + first ayah on that page. The home screen prefers showing the
-bookmark CTA over the generic "last visited" one when both exist. `openBookmark()` forces Read
-mode, reopens the surah, jumps to the saved page, and pulses (`.bookmark-pulse` CSS animation)
-the saved ayah for ~4 seconds so the user can immediately spot where they left off.
+"Continue" shortcut). The bookmark is an **explicit toggle** (tapping the ribbon icon):
+tapping it on a page that isn't yet bookmarked captures that exact page + first ayah on it;
+tapping it again on the *already-bookmarked* page clears the bookmark entirely
+(`bookmark = null`, `LS.set('hifz:bookmark', null)`). `setBookmarkHere()` checks whether the
+currently-open page matches the existing bookmark before deciding to set or clear — earlier
+versions only ever set it, so the ribbon looked like a toggle (filled icon when "on") but
+tapping it again silently did nothing.
 
-### 6.8 Rendering helpers worth knowing
+The home screen prefers showing the bookmark CTA over the generic "last visited" one when both
+exist. `openBookmark()` forces Read mode, reopens the surah, jumps to the saved page, and
+pulses (`.bookmark-pulse` CSS animation) the saved ayah for ~4 seconds so the user can
+immediately spot where they left off.
+
+### 6.8 Tafsir (Memorize mode panel + Read mode shared panel)
+
+Two separate UI entry points share the same data layer (`loadTafsir()`, `tafsirCache`,
+`TAFSIRS`, `tafsirId`):
+
+- **Memorize mode** — each ayah card has its own `#tafsir-wrap-{n}` / `#tafsir-body-{n}`,
+  toggled open/closed by `toggleTafsir(numInSurah)`. Independent per ayah, so multiple cards
+  can be expanded at once.
+- **Read mode** — a single shared `#tafsir-panel` at the bottom of the mushaf page, opened by
+  tapping an ayah's number roundel (`.ayah-marker`, via `showTafsirPanel(numInSurah)`). The
+  marker's `onclick` calls `event.stopPropagation()` first, since it's nested inside the
+  ayah's own `onclick` (which plays audio) — tapping the number must not also start playback.
+  `state.tafsirAyah` tracks which ayah (if any) is currently shown; it's cleared on
+  `openSurah`/`setMode`, and `readPageHTML()` only re-shows the panel on page navigation if
+  the open ayah is actually on the page being rendered.
+
+Both entry points let the reader switch source via a `<select>` (`onTafsirSourceChangeCard` /
+`onTafsirSourceChange`), which updates the shared `tafsirId` and re-fetches (or reads from
+cache) for whichever ayah is currently open.
+
+### 6.9 Rendering helpers worth knowing
 
 - `esc(s)` — HTML-escapes user-facing/API-facing text before interpolating into
   `innerHTML`, since all rendering is done via string templates (no auto-escaping DOM APIs).
@@ -357,6 +409,8 @@ the saved ayah for ~4 seconds so the user can immediately spot where they left o
 | `--primary-soft` | `#e3f0ed` | Light green (badges, memorized-ayah highlight) |
 | `--gold` | `#c9a227` | Accent gold (bookmarks, decorative elements) |
 | `--gold-soft` | `#f7efd8` | Light gold (badges) |
+| `--info` | `#6a5acd` | Accent indigo (Tafsir UI — toggle, panel border/header, emphasis text) |
+| `--info-soft` | `#ece9fb` | Light indigo (Tafsir badges/hover states) |
 | `--border` | `#e8e2d6` | Default border color |
 | `--radius` | `16px` | Default corner radius |
 | `--shadow` | soft dual box-shadow | Default card elevation |
@@ -525,6 +579,8 @@ entire development loop — no build/watch step exists or is needed.
 5. **Tap ▶** to hear the recitation — words un-blur automatically in sync with the audio.
 6. **Tap "تم الحفظ" / "Mark memorized"** once you've got it — it turns gold-highlighted and
    counts toward your home-screen progress.
+7. **Tap "التفسير" / "Tafsir"** to expand that ayah's exegesis inline, with a dropdown to
+   switch between trusted sources (Ibn Kathir, Al-Muyassar, As-Sa'di, At-Tabari).
 
 ### 10.4 Read mode
 
@@ -537,13 +593,24 @@ entire development loop — no build/watch step exists or is needed.
    labeled "إيقاف" / "Stop") to stop.
 5. Tap the **ribbon/bookmark icon** to save "I stopped here" — the exact page and ayah. It
    shows a gold "🔖 توقفت هنا / You stopped here" chip when you're viewing the bookmarked page.
-6. In English mode, each page's translation is shown below the Arabic text.
+   **Tap the icon again on that same page to remove the bookmark** — it's a toggle.
+6. Tap an ayah's **number roundel** (not the ayah text itself, which plays audio) to open its
+   Tafsir in a panel at the bottom of the page, with the same source dropdown as Memorize mode.
+7. In English mode, each page's translation is shown below the Arabic text.
 
 ### 10.5 Returning to where you left off
 
 From the home screen, the **Continue** button (top banner) always prefers your explicit
 bookmark over the generic "last opened" shortcut. Tapping it reopens the exact page in Read
 mode and briefly pulses the bookmarked ayah so you can spot it immediately.
+
+### 10.6 Tafsir sources
+
+All four available Tafsirs are classical or modern **scholarly-vetted** commentaries — Ibn
+Kathir, Al-Muyassar, As-Sa'di, and At-Tabari — served via the Quran.com / Quran Foundation API.
+There is no user-submitted or crowd-sourced commentary in the app. Your chosen source is
+remembered (`hifz:tafsirSrc`) and used everywhere until you change it again; each ayah's text
+is fetched once and cached, so revisiting it later is instant.
 
 ## 11. Known limitations
 
