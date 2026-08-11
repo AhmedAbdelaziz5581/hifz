@@ -17,6 +17,8 @@
     --primary-soft: #e3f0ed;
     --gold: #c9a227;
     --gold-soft: #f7efd8;
+    --info: #6a5acd;
+    --info-soft: #ece9fb;
     --border: #e8e2d6;
     --danger: #b4552d;
     --radius: 16px;
@@ -474,7 +476,10 @@
     border-radius: 50%;
     vertical-align: middle;
     line-height: 1;
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
   }
+  .ayah-marker:hover { background: var(--info-soft); color: var(--info); border-color: var(--info); }
   .ayah-marker::before {
     content: "";
     position: absolute; inset: -4px;
@@ -500,6 +505,45 @@
     color: var(--primary); background: var(--primary-soft);
     border-radius: 50%;
   }
+
+  /* ---------- Tafsir: shared prose + read-mode bottom panel ---------- */
+  .tafsir-prose { direction: rtl; text-align: right; }
+  .tafsir-prose p { font-size: .92rem; line-height: 1.9; color: var(--ink); margin-bottom: 10px; }
+  .tafsir-prose p:last-child { margin-bottom: 0; }
+  .tafsir-prose .blue { color: var(--info); font-weight: 600; }
+  .tafsir-loading { text-align: center; color: var(--muted); font-size: .88rem; padding: 10px 0; }
+  .tafsir-select {
+    appearance: none; -webkit-appearance: none;
+    border: 1.5px solid var(--border); border-radius: 999px;
+    background: #fff; color: var(--info); font-family: inherit;
+    font-size: .8rem; font-weight: 600;
+    padding: 5px 10px;
+  }
+  .tafsir-panel {
+    margin-top: 12px;
+    background: var(--card);
+    border: 1px solid var(--info);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .tafsir-panel-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--info-soft);
+    border-bottom: 1px solid var(--border);
+  }
+  .tafsir-panel-title { font-weight: 700; font-size: .85rem; color: var(--info); white-space: nowrap; }
+  .tafsir-panel-head .tafsir-select { margin-inline-start: auto; }
+  .tafsir-close {
+    width: 26px; height: 26px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    color: var(--muted); font-size: .85rem;
+  }
+  .tafsir-close:active { transform: scale(.9); }
+  .tafsir-panel-body { padding: 14px 16px 16px; }
+  .tafsir-panel-body > .tafsir-loading { padding: 20px 0; }
 
   .ayah-list { display: flex; flex-direction: column; gap: 14px; }
   .ayah-card {
@@ -594,6 +638,36 @@
   .mem-btn:hover { border-color: var(--gold); color: #8a6d10; }
   .mem-btn.on { border-color: var(--gold); background: var(--gold-soft); color: #8a6d10; }
   .mem-btn:active { transform: scale(.95); }
+
+  /* Memorize-mode tafsir toggle + expandable per-card panel */
+  .tafsir-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 14px;
+    border-radius: 999px;
+    font-size: .84rem;
+    font-weight: 600;
+    border: 1.5px solid var(--border);
+    color: var(--muted);
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(30,41,59,.05);
+    transition: transform .1s ease, background .15s ease, border-color .15s ease, color .15s ease;
+    white-space: nowrap;
+  }
+  .tafsir-btn svg { width: 15px; height: 15px; }
+  .tafsir-btn:hover { border-color: var(--info); color: var(--info); }
+  .tafsir-btn.on { border-color: var(--info); background: var(--info-soft); color: var(--info); }
+  .tafsir-btn:active { transform: scale(.95); }
+  .tafsir-wrap {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border);
+  }
+  .tafsir-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .tafsir-source-label { font-size: .76rem; font-weight: 600; color: var(--muted); }
+  .tafsir-toolbar .tafsir-select { margin-inline-start: auto; }
 
   .loading, .error-box { text-align: center; padding: 60px 20px; color: var(--muted); }
   .spinner {
@@ -711,7 +785,8 @@ let state = {
   revealed: {},       // ayahNumInSurah -> count of revealed words (memorize mode)
   search: '',
   readPages: null,    // read mode: ayahs grouped by mushaf page
-  readPageIdx: 0      // current page shown in read mode
+  readPageIdx: 0,     // current page shown in read mode
+  tafsirAyah: null     // read mode: numberInSurah currently shown in the tafsir panel, or null
 };
 let continuousMode = false;   // read mode: auto-advance recitation across ayahs/pages
 
@@ -762,7 +837,12 @@ const I18N = {
     toastMarked: 'تم الحفظ ✦',
     toastMemMode: 'اضغط على الآية لإظهارها كلمة كلمة',
     toastAudioFail: 'الصوت غير متاح — تحقّق من الاتصال',
-    ayahsWord: 'آية'
+    ayahsWord: 'آية',
+    tafsirLabel: 'التفسير',
+    tafsirSource: 'المصدر',
+    tafsirLoading: 'جارٍ تحميل التفسير…',
+    tafsirErr: 'تعذّر تحميل التفسير. تحقّق من اتصالك بالإنترنت.',
+    tafsirClose: 'إغلاق'
   },
   en: {
     appName: 'Hifz',
@@ -807,7 +887,12 @@ const I18N = {
     toastMarked: 'Marked as memorized ✦',
     toastMemMode: 'Tap an ayah to reveal word by word',
     toastAudioFail: 'Audio unavailable — check connection',
-    ayahsWord: 'ayahs'
+    ayahsWord: 'ayahs',
+    tafsirLabel: 'Tafsir',
+    tafsirSource: 'Source',
+    tafsirLoading: 'Loading tafsir…',
+    tafsirErr: "Couldn't load tafsir. Check your internet connection.",
+    tafsirClose: 'Close'
   }
 };
 function t(key, ...args) {
@@ -1085,6 +1170,50 @@ async function loadSurah(n) {
   return surah;
 }
 
+/* ---------------- Tafsir ---------------- */
+// A short list of classical/scholarly-vetted Arabic tafsirs from the Quran.com /
+// Quran Foundation API (the same trusted source already used for audio) — no
+// user-generated or unverified commentary sources.
+const TAFSIRS = [
+  { id: 14, ar: 'ابن كثير',  en: 'Ibn Kathir' },
+  { id: 16, ar: 'الميسر',    en: 'Al-Muyassar' },
+  { id: 91, ar: 'السعدي',    en: "As-Sa'di" },
+  { id: 15, ar: 'الطبري',    en: 'At-Tabari' }
+];
+let tafsirId = LS.get('hifz:tafsirSrc', 14);        // default: Ibn Kathir
+const tafsirCache = LS.get('hifz:tafsirCache', {}); // "{tafsirId}:{surah}:{ayah}" -> sanitized HTML
+
+// The API returns formatted HTML for the tafsir body. Strip anything that could
+// execute script before it's ever injected — defense in depth even though the
+// source is a trusted, reputable provider.
+function sanitizeTafsirHtml(html) {
+  return String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/javascript:/gi, '');
+}
+
+async function loadTafsir(id, surah, ayah) {
+  const key = id + ':' + surah + ':' + ayah;
+  if (tafsirCache[key]) return tafsirCache[key];
+  try {
+    const r = await fetch('https://api.quran.com/api/v4/tafsirs/' + id + '/by_ayah/' + surah + ':' + ayah);
+    const j = await r.json();
+    const raw = j.tafsir && j.tafsir.text;
+    if (!raw) return null;
+    const html = sanitizeTafsirHtml(raw);
+    tafsirCache[key] = html;
+    LS.set('hifz:tafsirCache', tafsirCache);
+    return html;
+  } catch { return null; }
+}
+
+function tafsirSourceOptions() {
+  return TAFSIRS.map(tf =>
+    `<option value="${tf.id}" ${tafsirId === tf.id ? 'selected' : ''}>${esc(lang === 'ar' ? tf.ar : tf.en)}</option>`).join('');
+}
+
 /* ---------------- Rendering ---------------- */
 function render() {
   stopAudio();
@@ -1218,6 +1347,7 @@ async function openSurah(n) {
   state.revealed = {};
   state.readPages = null;
   state.readPageIdx = 0;
+  state.tafsirAyah = null;
   continuousMode = false;
   app.innerHTML = `<div class="loading" style="padding-top:120px"><div class="spinner"></div>${esc(t('loadingSurah'))}</div>`;
   try {
@@ -1326,7 +1456,7 @@ function readPageHTML(s) {
   const showBasmala = s.basmala && pg.ayahs[0].numberInSurah === 1;
   const ayahs = pg.ayahs.map(a => {
     const isMem = !!memorized[s.number + ':' + a.numberInSurah];
-    return `<span class="m-ayah${isMem ? ' mem' : ''}" id="m-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah})">${esc(a.text)}<span class="ayah-marker">${toDigits(a.numberInSurah)}</span></span>`;
+    return `<span class="m-ayah${isMem ? ' mem' : ''}" id="m-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah})">${esc(a.text)}<span class="ayah-marker" onclick="event.stopPropagation(); showTafsirPanel(${a.numberInSurah})" title="${esc(t('tafsirLabel'))}">${toDigits(a.numberInSurah)}</span></span>`;
   }).join(' ');
   const prevArrow = lang === 'ar' ? '‹' : '›';
   const nextArrow = lang === 'ar' ? '›' : '‹';
@@ -1345,11 +1475,21 @@ function readPageHTML(s) {
         <button class="cont-btn ${continuousMode ? 'on' : ''}" id="cont-btn" onclick="toggleContinuous()">${continuousBtnInner()}</button>
       </div>
     </div>`;
+  const tafsirOpenAyah = state.tafsirAyah != null && pg.ayahs.some(a => a.numberInSurah === state.tafsirAyah)
+    ? state.tafsirAyah : null;
   let html = pageBar + `<div class="mushaf-page">
       <div class="mushaf-body">
         ${showBasmala ? `<div class="basmala">${esc(s.basmala)}</div>` : ''}
         <div class="mushaf-text">${ayahs}</div>
       </div>
+    </div>
+    <div class="tafsir-panel" id="tafsir-panel" ${tafsirOpenAyah ? '' : 'hidden'}>
+      <div class="tafsir-panel-head">
+        <span class="tafsir-panel-title" id="tafsir-panel-title">${tafsirOpenAyah ? esc(t('ayahLabel', tafsirOpenAyah)) : ''}</span>
+        <select class="tafsir-select" id="tafsir-panel-select" onchange="onTafsirSourceChange(this.value)">${tafsirSourceOptions()}</select>
+        <button class="tafsir-close" onclick="hideTafsirPanel()" aria-label="${esc(t('tafsirClose'))}">✕</button>
+      </div>
+      <div class="tafsir-panel-body tafsir-prose" id="tafsir-panel-body"></div>
     </div>`;
   if (lang === 'en') {
     const tr = pg.ayahs.map(a =>
@@ -1357,6 +1497,9 @@ function readPageHTML(s) {
     html += `<div class="mushaf-trans">${tr}</div>`;
   }
   html += pageBar;
+  // The panel markup above is inserted synchronously via innerHTML by the caller;
+  // defer the async tafsir fetch to the next tick so the DOM nodes exist by then.
+  if (tafsirOpenAyah) setTimeout(() => renderTafsirPanelBody(tafsirOpenAyah), 0);
   return html;
 }
 
@@ -1431,6 +1574,63 @@ function highlightBookmarkAyah() {
   span.scrollIntoView({ block: 'center', behavior: 'smooth' });
   span.classList.add('bookmark-pulse');
   setTimeout(() => span.classList.remove('bookmark-pulse'), 4200);
+}
+
+/* ----- Tafsir (read mode: shared bottom panel) ----- */
+async function showTafsirPanel(numInSurah) {
+  state.tafsirAyah = numInSurah;
+  const panel = document.getElementById('tafsir-panel');
+  if (!panel) return;
+  panel.hidden = false;
+  const title = document.getElementById('tafsir-panel-title');
+  if (title) title.textContent = t('ayahLabel', numInSurah);
+  const select = document.getElementById('tafsir-panel-select');
+  if (select) select.value = String(tafsirId);
+  panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  await renderTafsirPanelBody(numInSurah);
+}
+async function renderTafsirPanelBody(numInSurah) {
+  const body = document.getElementById('tafsir-panel-body');
+  if (!body) return;
+  body.innerHTML = `<div class="tafsir-loading">${esc(t('tafsirLoading'))}</div>`;
+  const html = await loadTafsir(tafsirId, state.surah.number, numInSurah);
+  if (state.tafsirAyah !== numInSurah) return;   // user closed / moved on while loading
+  const freshBody = document.getElementById('tafsir-panel-body');
+  if (freshBody) freshBody.innerHTML = html || `<div class="tafsir-loading">${esc(t('tafsirErr'))}</div>`;
+}
+function onTafsirSourceChange(val) {
+  tafsirId = +val;
+  LS.set('hifz:tafsirSrc', tafsirId);
+  if (state.tafsirAyah != null) renderTafsirPanelBody(state.tafsirAyah);
+}
+function hideTafsirPanel() {
+  state.tafsirAyah = null;
+  const panel = document.getElementById('tafsir-panel');
+  if (panel) panel.hidden = true;
+}
+
+/* ----- Tafsir (memorize mode: per-ayah-card panel) ----- */
+async function toggleTafsir(numInSurah) {
+  const wrap = document.getElementById('tafsir-wrap-' + numInSurah);
+  if (!wrap) return;
+  const opening = wrap.hidden;
+  wrap.hidden = !opening;
+  const btn = document.getElementById('tafsir-btn-' + numInSurah);
+  if (btn) btn.classList.toggle('on', opening);
+  if (opening) await renderTafsirBody(numInSurah);
+}
+async function renderTafsirBody(numInSurah) {
+  const body = document.getElementById('tafsir-body-' + numInSurah);
+  if (!body) return;
+  body.innerHTML = `<div class="tafsir-loading">${esc(t('tafsirLoading'))}</div>`;
+  const html = await loadTafsir(tafsirId, state.surah.number, numInSurah);
+  const freshBody = document.getElementById('tafsir-body-' + numInSurah);
+  if (freshBody) freshBody.innerHTML = html || `<div class="tafsir-loading">${esc(t('tafsirErr'))}</div>`;
+}
+function onTafsirSourceChangeCard(numInSurah, val) {
+  tafsirId = +val;
+  LS.set('hifz:tafsirSrc', tafsirId);
+  renderTafsirBody(numInSurah);
 }
 
 /* ----- Continuous recitation ----- */
@@ -1508,6 +1708,11 @@ function bookmarkIconSVG(filled) {
     : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4a1 1 0 0 0-1 1v15l7-4.5 7 4.5V5a1 1 0 0 0-1-1H6z"/></svg>`;
 }
 
+// Inline SVG open-book icon for the tafsir toggle.
+function bookIconSVG() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`;
+}
+
 // Inline SVG eye icon — renders reliably everywhere (unlike the 👁 emoji).
 function eyeSVG(open) {
   return open
@@ -1537,12 +1742,22 @@ function ayahCardHTML(a) {
         <button class="mem-btn ${isMem ? 'on' : ''}" onclick="toggleMem('${key}', ${a.numberInSurah})">
           ${isMem ? esc(t('isMem')) : esc(t('markMem'))}
         </button>
+        <button class="tafsir-btn" id="tafsir-btn-${a.numberInSurah}" onclick="toggleTafsir(${a.numberInSurah})" title="${esc(t('tafsirLabel'))}">
+          ${bookIconSVG()}<span>${esc(t('tafsirLabel'))}</span>
+        </button>
       </div>
       <span class="ayah-no">${t('ayahLabel', a.numberInSurah)}</span>
       <div class="foot-side end">
         ${revealBtn}
         <button class="icon-btn play-btn" id="play-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah}, ${a.number})" title="${esc(t('listen'))}" aria-label="${esc(t('listen'))}">${playIconSVG()}</button>
       </div>
+    </div>
+    <div class="tafsir-wrap" id="tafsir-wrap-${a.numberInSurah}" hidden>
+      <div class="tafsir-toolbar">
+        <span class="tafsir-source-label">${esc(t('tafsirSource'))}</span>
+        <select class="tafsir-select" onchange="onTafsirSourceChangeCard(${a.numberInSurah}, this.value)">${tafsirSourceOptions()}</select>
+      </div>
+      <div class="tafsir-body tafsir-prose" id="tafsir-body-${a.numberInSurah}"></div>
     </div>
   </div>`;
 }
@@ -1554,6 +1769,7 @@ function setMode(m) {
   stopAudio();
   state.mode = m;
   state.revealed = {};
+  state.tafsirAyah = null;
   renderSurah();
   if (m === 'memorize') toast(t('toastMemMode'));
 }
