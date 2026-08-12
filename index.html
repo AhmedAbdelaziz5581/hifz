@@ -600,7 +600,7 @@
     padding-top: 12px;
     border-top: 1px solid #f1ece1;
   }
-  .foot-side { display: flex; align-items: center; gap: 8px; }
+  .foot-side { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .foot-side.start { justify-self: start; }
   .foot-side.end { justify-self: end; }
   .ayah-no {
@@ -765,6 +765,45 @@
   @media (max-width: 480px) {
     .ayah-ar { font-size: 1.6rem; line-height: 2.2; }
     .hero h1 { font-size: 1.4rem; }
+
+    /* Ayah footer gets tight once the Tafsir button joined "mark memorized" —
+       drop the Tafsir button's text label and make it a round icon button
+       (matching the eye/play icons) so both fit without colliding with the
+       centered ayah-number badge. */
+    .tafsir-btn {
+      width: 42px; height: 42px;
+      padding: 0;
+      justify-content: center;
+    }
+    .tafsir-btn span { display: none; }
+    .mem-btn { padding: 9px 12px; font-size: .78rem; }
+    .ayah-no { padding: 5px 9px; font-size: .74rem; }
+
+    .mushaf-text { font-size: 1.65rem; line-height: 2.3; }
+    .feedback-modal { max-width: 100%; }
+
+    /* Read-mode page bar (prev/next, page number, bookmark/tafsir/continue)
+       overflows its row on narrow phones — shrink the nav circles and drop
+       the continue button's text label, mirroring the tafsir-btn treatment
+       above, so the row stays within the mushaf-body width. */
+    .page-bar { gap: 6px; }
+    .page-actions { gap: 6px; }
+    .pg-nav { width: 36px; height: 36px; font-size: 1.3rem; }
+    .cont-btn {
+      width: 40px; height: 40px;
+      padding: 0; gap: 0;
+      justify-content: center;
+    }
+    .cont-btn span:not(.cont-icon) { display: none; }
+  }
+
+  @media (max-width: 340px) {
+    /* At very narrow widths (e.g. iPhone SE, 320px) the mem-btn label still
+       collides with the centered ayah-number badge — shrink further. */
+    .ayah-foot { gap: 4px; }
+    .foot-side { gap: 4px; }
+    .mem-btn { padding: 6px 9px; font-size: .7rem; }
+    .ayah-no { padding: 4px 7px; font-size: .68rem; }
   }
 
   /* ---------- Feedback ---------- */
@@ -803,11 +842,18 @@
   }
   .feedback-head h2 { font-size: 1.05rem; font-weight: 700; color: var(--primary); }
   .feedback-x {
-    width: 30px; height: 30px; flex-shrink: 0;
+    width: 40px; height: 40px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
     border-radius: 50%;
-    color: var(--muted);
+    background: rgba(30,41,59,.07);
+    border: 1.5px solid var(--border);
+    color: var(--ink);
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1;
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
   }
+  .feedback-x:hover { background: var(--gold-soft); border-color: var(--gold); color: #8a6d10; }
   .feedback-x:active { transform: scale(.9); }
   #feedback-form { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
   .feedback-field { display: flex; flex-direction: column; gap: 6px; }
