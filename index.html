@@ -1737,7 +1737,7 @@ function renderSurah() {
       </label>
     </div>
     ${mem ? `<div class="hint">${esc(t('memHint'))}</div>` : ''}
-    ${mem ? `<div class="mem-cont-row"><button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()">${continuousBtnInner()}</button></div>` : ''}
+    ${mem ? `<div class="mem-cont-row"><button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()" aria-label="${esc(continuousBtnTip())}" data-tip="${esc(continuousBtnTip())}">${continuousBtnInner()}</button></div>` : ''}
     ${mem
       ? `${s.basmala ? `<div class="basmala">${esc(s.basmala)}</div>` : ''}
          <div class="ayah-list">${s.ayahs.map(a => ayahCardHTML(a)).join('')}</div>`
@@ -1790,7 +1790,7 @@ function readPageHTML(s) {
       <div class="page-actions">
         <button class="pg-nav bookmark-btn ${isBookmarkedPage ? 'on' : ''}" onclick="setBookmarkHere()" aria-label="${esc(t('bookmarkHere'))}" data-tip="${esc(t('bookmarkHere'))}">${bookmarkIconSVG(isBookmarkedPage)}</button>
         <button class="pg-nav tafsir-page-btn ${tafsirOpenAyah ? 'on' : ''}" onclick="toggleTafsirPanelDefault()" aria-label="${esc(t('tafsirLabel'))}" data-tip="${esc(t('tafsirLabel'))}">${bookIconSVG()}</button>
-        <button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()">${continuousBtnInner()}</button>
+        <button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()" aria-label="${esc(continuousBtnTip())}" data-tip="${esc(continuousBtnTip())}">${continuousBtnInner()}</button>
       </div>
     </div>`;
   let html = pageBar + `<div class="mushaf-page">
@@ -1822,6 +1822,11 @@ function readPageHTML(s) {
 function continuousBtnInner() {
   const icon = continuousMode ? pauseIconSVG() : playIconSVG();
   return `<span class="cont-icon">${icon}</span><span>${esc(continuousMode ? t('stopPlay') : t('continuousPlay'))}</span>`;
+}
+function continuousBtnTip() {
+  // Same label as the button's own text, so the tooltip stays useful once
+  // the label is hidden (icon-only cont-btn on narrow screens).
+  return continuousMode ? t('stopPlay') : t('continuousPlay');
 }
 
 function refreshReadArea() {
@@ -1992,9 +1997,12 @@ function stopContinuous() {
 function updateContinuousBtn() {
   // The mushaf page renders a cont-btn at both the top and bottom page-bar —
   // keep both in sync rather than just the first match.
+  const tip = continuousBtnTip();
   document.querySelectorAll('.cont-btn').forEach(b => {
     b.classList.toggle('on', continuousMode);
     b.innerHTML = continuousBtnInner();
+    b.setAttribute('aria-label', tip);
+    b.setAttribute('data-tip', tip);
   });
 }
 function advanceContinuous(numInSurah) {
@@ -2097,7 +2105,7 @@ function ayahCardHTML(a) {
       <span class="ayah-no">${t('ayahLabel', a.numberInSurah)}</span>
       <div class="foot-side end">
         ${revealBtn}
-        <button class="icon-btn play-btn" id="play-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah})" title="${esc(t('listen'))}" aria-label="${esc(t('listen'))}">${playIconSVG()}</button>
+        <button class="icon-btn play-btn" id="play-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah})" aria-label="${esc(t('listen'))}" data-tip="${esc(t('listen'))}">${playIconSVG()}</button>
       </div>
     </div>
     <div class="tafsir-wrap" id="tafsir-wrap-${a.numberInSurah}" hidden>
