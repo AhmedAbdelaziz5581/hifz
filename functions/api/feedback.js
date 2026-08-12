@@ -1,5 +1,5 @@
 // Cloudflare Pages Function — POST /api/feedback
-// Stores { email, message } into the D1 database bound as `DB` (see wrangler.toml).
+// Stores { email, message, rating } into the D1 database bound as `DB` (see wrangler.toml).
 const RATE_LIMIT_MAX = 5;          // max submissions...
 const RATE_LIMIT_WINDOW_MIN = 10;  // ...per IP, per this many minutes
 
@@ -15,10 +15,17 @@ export async function onRequestPost(context) {
 
   const email = String(body && body.email || '').trim();
   const message = String(body && body.message || '').trim();
+  const ratingRaw = body && body.rating;
 
   if (!email || !message) return json({ error: 'missing_fields' }, 400);
   if (email.length > 200 || message.length > 4000) return json({ error: 'too_long' }, 400);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid_email' }, 400);
+
+  let rating = null;
+  if (ratingRaw !== null && ratingRaw !== undefined && ratingRaw !== '') {
+    rating = Number(ratingRaw);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) return json({ error: 'invalid_rating' }, 400);
+  }
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
@@ -28,8 +35,8 @@ export async function onRequestPost(context) {
     ).bind(ip).first();
     if (recent && recent.c >= RATE_LIMIT_MAX) return json({ error: 'rate_limited' }, 429);
 
-    await env.DB.prepare('INSERT INTO feedback (email, message, ip) VALUES (?, ?, ?)')
-      .bind(email, message, ip)
+    await env.DB.prepare('INSERT INTO feedback (email, message, rating, ip) VALUES (?, ?, ?, ?)')
+      .bind(email, message, rating, ip)
       .run();
     return json({ ok: true });
   } catch (err) {

@@ -788,6 +788,7 @@
     display: flex; align-items: center; justify-content: center;
     padding: 20px;
   }
+  .feedback-overlay[hidden] { display: none; }
   .feedback-modal {
     width: 100%; max-width: 420px;
     background: var(--card);
@@ -811,6 +812,17 @@
   #feedback-form { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
   .feedback-field { display: flex; flex-direction: column; gap: 6px; }
   .feedback-field span { font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .feedback-stars { display: flex; gap: 6px; }
+  .star-btn {
+    width: 34px; height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--border);
+    transition: transform .1s ease, color .15s ease;
+  }
+  .star-btn svg { width: 26px; height: 26px; }
+  .star-btn.filled { color: var(--gold); }
+  .star-btn:hover { color: var(--gold); transform: scale(1.1); }
+  .star-btn:active { transform: scale(.9); }
   .feedback-field input, .feedback-field textarea {
     border: 1.5px solid var(--border);
     border-radius: 10px;
@@ -850,6 +862,16 @@
       <button class="feedback-x" onclick="closeFeedback()" aria-label="Close">✕</button>
     </div>
     <form id="feedback-form" onsubmit="return submitFeedback(event)">
+      <div class="feedback-field">
+        <span id="feedback-rating-label"></span>
+        <div class="feedback-stars" id="feedback-stars" role="radiogroup">
+          <button type="button" class="star-btn" data-value="1" onclick="setFeedbackRating(1)"></button>
+          <button type="button" class="star-btn" data-value="2" onclick="setFeedbackRating(2)"></button>
+          <button type="button" class="star-btn" data-value="3" onclick="setFeedbackRating(3)"></button>
+          <button type="button" class="star-btn" data-value="4" onclick="setFeedbackRating(4)"></button>
+          <button type="button" class="star-btn" data-value="5" onclick="setFeedbackRating(5)"></button>
+        </div>
+      </div>
       <label class="feedback-field">
         <span id="feedback-email-label"></span>
         <input type="email" id="feedback-email" required maxlength="200" autocomplete="email">
@@ -960,7 +982,9 @@ const I18N = {
     feedbackErr: 'تعذّر الإرسال. حاول مرة أخرى.',
     feedbackInvalidEmail: 'يرجى إدخال بريد إلكتروني صحيح.',
     feedbackRateLimited: 'محاولات كثيرة جدًا. يرجى الانتظار قليلًا ثم إعادة المحاولة.',
-    feedbackPrivacy: 'يُستخدم بريدك الإلكتروني فقط للرد على ملاحظتك، ولا يُشارك مع أي جهة.'
+    feedbackPrivacy: 'يُستخدم بريدك الإلكتروني فقط للرد على ملاحظتك، ولا يُشارك مع أي جهة.',
+    feedbackRating: 'قيّم تجربتك (اختياري)',
+    feedbackStarN: n => `${toDigits(n)} نجوم`
   },
   en: {
     appName: 'Hifz',
@@ -1025,7 +1049,9 @@ const I18N = {
     feedbackErr: "Couldn't send it. Please try again.",
     feedbackInvalidEmail: 'Please enter a valid email address.',
     feedbackRateLimited: 'Too many attempts. Please wait a bit and try again.',
-    feedbackPrivacy: "Your email is used only to reply to your feedback, and is never shared."
+    feedbackPrivacy: "Your email is used only to reply to your feedback, and is never shared.",
+    feedbackRating: 'Rate your experience (optional)',
+    feedbackStarN: n => `${n} star${n === 1 ? '' : 's'}`
   }
 };
 function t(key, ...args) {
@@ -2037,12 +2063,34 @@ function toggleMem(key, numInSurah) {
 function chatIconSVG() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
 }
+function starIconSVG(filled) {
+  return filled
+    ? `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6.3 6.9.7-5.2 4.7 1.5 6.8L12 17.6l-6.1 3.4 1.5-6.8-5.2-4.7 6.9-.7z"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5l2.9 6.3 6.9.7-5.2 4.7 1.5 6.8L12 17.6l-6.1 3.4 1.5-6.8-5.2-4.7 6.9-.7z"/></svg>`;
+}
+let feedbackRating = 0;
+function setFeedbackRating(n) {
+  feedbackRating = n;
+  renderFeedbackStars();
+}
+function renderFeedbackStars() {
+  document.querySelectorAll('#feedback-stars .star-btn').forEach(btn => {
+    const v = +btn.dataset.value;
+    const filled = v <= feedbackRating;
+    btn.innerHTML = starIconSVG(filled);
+    btn.classList.toggle('filled', filled);
+    btn.setAttribute('aria-label', t('feedbackStarN', v));
+    btn.setAttribute('aria-pressed', String(filled));
+  });
+}
 function refreshFeedbackLabels() {
   const fab = document.getElementById('feedback-fab');
   if (!fab) return;
   fab.innerHTML = chatIconSVG();
   fab.title = t('feedbackLabel');
   document.getElementById('feedback-title').textContent = t('feedbackTitle');
+  document.getElementById('feedback-rating-label').textContent = t('feedbackRating');
+  renderFeedbackStars();
   document.getElementById('feedback-email-label').textContent = t('feedbackEmail');
   document.getElementById('feedback-msg-label').textContent = t('feedbackMessage');
   document.getElementById('feedback-message').placeholder = t('feedbackMessagePh');
@@ -2050,6 +2098,7 @@ function refreshFeedbackLabels() {
   document.getElementById('feedback-privacy').textContent = t('feedbackPrivacy');
 }
 function openFeedback() {
+  feedbackRating = 0;
   refreshFeedbackLabels();
   document.getElementById('feedback-overlay').hidden = false;
   document.getElementById('feedback-status').hidden = true;
@@ -2074,14 +2123,14 @@ async function submitFeedback(event) {
     const r = await fetch('/api/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, message })
+      body: JSON.stringify({ email, message, rating: feedbackRating || null })
     });
     const j = await r.json().catch(() => ({}));
     if (r.ok && j.ok) {
       statusEl.textContent = t('feedbackSuccess');
       statusEl.className = 'feedback-status ok';
       statusEl.hidden = false;
-      emailEl.value = ''; msgEl.value = '';
+      emailEl.value = ''; msgEl.value = ''; feedbackRating = 0; renderFeedbackStars();
       setTimeout(closeFeedback, 1800);
     } else if (j.error === 'invalid_email') {
       statusEl.textContent = t('feedbackInvalidEmail');
