@@ -512,6 +512,14 @@
   .tafsir-prose p:last-child { margin-bottom: 0; }
   .tafsir-prose .blue { color: var(--info); font-weight: 600; }
   .tafsir-loading { text-align: center; color: var(--muted); font-size: .88rem; padding: 10px 0; }
+  .tafsir-more-btn {
+    display: inline-block;
+    font-size: .84rem; font-weight: 700;
+    color: var(--info);
+    padding: 2px 0;
+  }
+  .tafsir-more-btn:active { opacity: .7; }
+  .tafsir-rest { margin-top: 4px; }
   .tafsir-select {
     appearance: none; -webkit-appearance: none;
     border: 1.5px solid var(--border); border-radius: 999px;
@@ -843,7 +851,9 @@ const I18N = {
     tafsirSource: 'المصدر',
     tafsirLoading: 'جارٍ تحميل التفسير…',
     tafsirErr: 'تعذّر تحميل التفسير. تحقّق من اتصالك بالإنترنت.',
-    tafsirClose: 'إغلاق'
+    tafsirClose: 'إغلاق',
+    tafsirMore: 'اقرأ المزيد',
+    tafsirLess: 'عرض أقل'
   },
   en: {
     appName: 'Hifz',
@@ -894,7 +904,9 @@ const I18N = {
     tafsirSource: 'Source',
     tafsirLoading: 'Loading tafsir…',
     tafsirErr: "Couldn't load tafsir. Check your internet connection.",
-    tafsirClose: 'Close'
+    tafsirClose: 'Close',
+    tafsirMore: 'Read more',
+    tafsirLess: 'Show less'
   }
 };
 function t(key, ...args) {
@@ -1177,12 +1189,17 @@ async function loadSurah(n) {
 // Quran Foundation API (the same trusted source already used for audio) — no
 // user-generated or unverified commentary sources.
 const TAFSIRS = [
-  { id: 14, ar: 'ابن كثير',  en: 'Ibn Kathir' },
   { id: 16, ar: 'الميسر',    en: 'Al-Muyassar' },
+  { id: 14, ar: 'ابن كثير',  en: 'Ibn Kathir' },
   { id: 91, ar: 'السعدي',    en: "As-Sa'di" },
   { id: 15, ar: 'الطبري',    en: 'At-Tabari' }
 ];
-let tafsirId = LS.get('hifz:tafsirSrc', 14);        // default: Ibn Kathir
+// Default to Al-Muyassar: it's written per-ayah and stays concise. Sources like
+// Ibn Kathir attach a full surah introduction (sometimes tens of thousands of
+// characters) to that surah's first ayah, which reads as "not about this ayah"
+// in a compact panel — still available via the source picker for readers who
+// want that depth, just not the default.
+let tafsirId = LS.get('hifz:tafsirSrc', 16);
 const tafsirCache = LS.get('hifz:tafsirCache', {}); // "{tafsirId}:{surah}:{ayah}" -> sanitized HTML
 
 // The API returns formatted HTML for the tafsir body. Strip anything that could
@@ -1194,6 +1211,34 @@ function sanitizeTafsirHtml(html) {
     .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
     .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
     .replace(/javascript:/gi, '');
+}
+
+// Some tafsir entries (especially a surah's first ayah, which can carry a full
+// surah introduction) run to tens of thousands of characters. Show a short
+// excerpt — whole paragraphs only, so we never cut a sentence mid-way — with a
+// "read more" expander for the rest, instead of dumping it all into a panel.
+const TAFSIR_EXCERPT_CHARS = 480;
+function tafsirWithExpander(html) {
+  const paras = html.split(/(?=<p[\s>])/).filter(Boolean);
+  const chunks = paras.length > 1 ? paras : [html];
+  let shown = '', shownLen = 0, i = 0;
+  for (; i < chunks.length; i++) {
+    const chunkTextLen = chunks[i].replace(/<[^>]+>/g, '').length;
+    if (shownLen > 0 && shownLen + chunkTextLen > TAFSIR_EXCERPT_CHARS) break;
+    shown += chunks[i];
+    shownLen += chunkTextLen;
+  }
+  const rest = chunks.slice(i).join('');
+  if (!rest) return html;   // short enough already — show in full, no expander
+  return shown +
+    `<button class="tafsir-more-btn" onclick="toggleTafsirMore(this)">${esc(t('tafsirMore'))}</button>` +
+    `<div class="tafsir-rest" hidden>${rest}</div>`;
+}
+function toggleTafsirMore(btn) {
+  const box = btn.nextElementSibling;
+  const opening = box.hidden;
+  box.hidden = !opening;
+  btn.textContent = opening ? t('tafsirLess') : t('tafsirMore');
 }
 
 async function loadTafsir(id, surah, ayah) {
@@ -1607,7 +1652,7 @@ async function renderTafsirPanelBody(numInSurah) {
   const html = await loadTafsir(tafsirId, state.surah.number, numInSurah);
   if (state.tafsirAyah !== numInSurah) return;   // user closed / moved on while loading
   const freshBody = document.getElementById('tafsir-panel-body');
-  if (freshBody) freshBody.innerHTML = html || `<div class="tafsir-loading">${esc(t('tafsirErr'))}</div>`;
+  if (freshBody) freshBody.innerHTML = html ? tafsirWithExpander(html) : `<div class="tafsir-loading">${esc(t('tafsirErr'))}</div>`;
 }
 function onTafsirSourceChange(val) {
   tafsirId = +val;
@@ -1636,7 +1681,7 @@ async function renderTafsirBody(numInSurah) {
   body.innerHTML = `<div class="tafsir-loading">${esc(t('tafsirLoading'))}</div>`;
   const html = await loadTafsir(tafsirId, state.surah.number, numInSurah);
   const freshBody = document.getElementById('tafsir-body-' + numInSurah);
-  if (freshBody) freshBody.innerHTML = html || `<div class="tafsir-loading">${esc(t('tafsirErr'))}</div>`;
+  if (freshBody) freshBody.innerHTML = html ? tafsirWithExpander(html) : `<div class="tafsir-loading">${esc(t('tafsirErr'))}</div>`;
 }
 function onTafsirSourceChangeCard(numInSurah, val) {
   tafsirId = +val;
