@@ -413,6 +413,8 @@
   .page-actions { margin-inline-start: auto; display: flex; align-items: center; gap: 8px; }
   .bookmark-btn svg { width: 17px; height: 17px; }
   .bookmark-btn.on { border-color: var(--gold); color: #8a6d10; background: var(--gold-soft); }
+  .tafsir-page-btn svg { width: 17px; height: 17px; }
+  .tafsir-page-btn.on { border-color: var(--info); color: var(--info); background: var(--info-soft); }
   .cont-btn {
     display: inline-flex; align-items: center; gap: 7px;
     padding: 9px 16px;
@@ -1645,6 +1647,8 @@ function readPageHTML(s) {
   const nextArrow = lang === 'ar' ? '›' : '‹';
   const isBookmarkedPage = bookmark && bookmark.surah === s.number && bookmark.page === pg.page;
   const bookmarkedChip = isBookmarkedPage ? `<span class="pg-bookmarked">${esc(t('stoppedHere'))}</span>` : '';
+  const tafsirOpenAyah = state.tafsirAyah != null && pg.ayahs.some(a => a.numberInSurah === state.tafsirAyah)
+    ? state.tafsirAyah : null;
   const pageBar = `<div class="page-bar">
       <button class="pg-nav" onclick="gotoReadPage(${idx - 1})" ${idx === 0 ? 'disabled' : ''} aria-label="prev">${prevArrow}</button>
       <div class="pg-info">
@@ -1655,11 +1659,10 @@ function readPageHTML(s) {
       <button class="pg-nav" onclick="gotoReadPage(${idx + 1})" ${idx === pages.length - 1 ? 'disabled' : ''} aria-label="next">${nextArrow}</button>
       <div class="page-actions">
         <button class="pg-nav bookmark-btn ${isBookmarkedPage ? 'on' : ''}" id="bookmark-btn" onclick="setBookmarkHere()" title="${esc(t('bookmarkHere'))}">${bookmarkIconSVG(isBookmarkedPage)}</button>
+        <button class="pg-nav tafsir-page-btn ${tafsirOpenAyah ? 'on' : ''}" id="tafsir-page-btn" onclick="toggleTafsirPanelDefault()" title="${esc(t('tafsirLabel'))}">${bookIconSVG()}</button>
         <button class="cont-btn ${continuousMode ? 'on' : ''}" id="cont-btn" onclick="toggleContinuous()">${continuousBtnInner()}</button>
       </div>
     </div>`;
-  const tafsirOpenAyah = state.tafsirAyah != null && pg.ayahs.some(a => a.numberInSurah === state.tafsirAyah)
-    ? state.tafsirAyah : null;
   let html = pageBar + `<div class="mushaf-page">
       <div class="mushaf-body">
         ${showBasmala ? `<div class="basmala">${esc(s.basmala)}</div>` : ''}
@@ -1778,6 +1781,8 @@ async function showTafsirPanel(numInSurah) {
   if (title) title.textContent = t('ayahLabel', numInSurah);
   const select = document.getElementById('tafsir-panel-select');
   if (select) select.value = String(tafsirId);
+  const pageBtn = document.getElementById('tafsir-page-btn');
+  if (pageBtn) pageBtn.classList.add('on');
   panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   await renderTafsirPanelBody(numInSurah);
 }
@@ -1799,6 +1804,19 @@ function hideTafsirPanel() {
   state.tafsirAyah = null;
   const panel = document.getElementById('tafsir-panel');
   if (panel) panel.hidden = true;
+  const pageBtn = document.getElementById('tafsir-page-btn');
+  if (pageBtn) pageBtn.classList.remove('on');
+}
+// Explicit, discoverable entry point in the page-bar (the ayah-marker tap is a
+// secondary shortcut for jumping straight to a specific ayah's Tafsir).
+// Toggles: closes the panel if it's already open for this page, otherwise
+// opens it for the page's first ayah.
+function toggleTafsirPanelDefault() {
+  if (!state.readPages) return;
+  const pg = state.readPages[state.readPageIdx];
+  const alreadyOpenHere = state.tafsirAyah != null && pg.ayahs.some(a => a.numberInSurah === state.tafsirAyah);
+  if (alreadyOpenHere) hideTafsirPanel();
+  else showTafsirPanel(pg.ayahs[0].numberInSurah);
 }
 
 /* ----- Tafsir (memorize mode: per-ayah-card panel) ----- */
