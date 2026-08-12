@@ -379,6 +379,7 @@
     padding: 9px 14px;
     margin-bottom: 14px;
   }
+  .mem-cont-row { display: flex; justify-content: center; margin-bottom: 14px; }
 
   .basmala {
     font-family: 'Amiri Quran', serif;
@@ -1736,6 +1737,7 @@ function renderSurah() {
       </label>
     </div>
     ${mem ? `<div class="hint">${esc(t('memHint'))}</div>` : ''}
+    ${mem ? `<div class="mem-cont-row"><button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()">${continuousBtnInner()}</button></div>` : ''}
     ${mem
       ? `${s.basmala ? `<div class="basmala">${esc(s.basmala)}</div>` : ''}
          <div class="ayah-list">${s.ayahs.map(a => ayahCardHTML(a)).join('')}</div>`
@@ -1977,8 +1979,10 @@ function toggleContinuous() {
 function startContinuous() {
   continuousMode = true;
   updateContinuousBtn();
-  const pg = state.readPages[state.readPageIdx];
-  playAyah(pg.ayahs[0].numberInSurah, true);
+  // Read mode starts from the current mushaf page; memorize mode has no
+  // pagination, so it just starts from the surah's first ayah.
+  const first = state.mode === 'read' ? state.readPages[state.readPageIdx].ayahs[0] : state.surah.ayahs[0];
+  playAyah(first.numberInSurah, true);
 }
 function stopContinuous() {
   continuousMode = false;
@@ -1996,12 +2000,18 @@ function updateContinuousBtn() {
 function advanceContinuous(numInSurah) {
   const next = state.surah.ayahs.find(x => x.numberInSurah === numInSurah + 1);
   if (!next) { continuousMode = false; stopAudio(); updateContinuousBtn(); return; }
-  // Flip to the next mushaf page if the next ayah isn't on the current one.
-  const nIdx = state.readPages.findIndex(p => p.ayahs.some(x => x.numberInSurah === next.numberInSurah));
-  if (nIdx >= 0 && nIdx !== state.readPageIdx) { state.readPageIdx = nIdx; refreshReadArea(); }
-  playAyah(next.numberInSurah, true);
-  const span = document.getElementById('m-' + next.numberInSurah);
-  if (span) span.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (state.mode === 'read') {
+    // Flip to the next mushaf page if the next ayah isn't on the current one.
+    const nIdx = state.readPages.findIndex(p => p.ayahs.some(x => x.numberInSurah === next.numberInSurah));
+    if (nIdx >= 0 && nIdx !== state.readPageIdx) { state.readPageIdx = nIdx; refreshReadArea(); }
+    playAyah(next.numberInSurah, true);
+    const span = document.getElementById('m-' + next.numberInSurah);
+    if (span) span.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  } else {
+    playAyah(next.numberInSurah, true);
+    const card = document.getElementById('ayah-' + next.numberInSurah);
+    if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
 }
 
 // Update the juz badge to the juz of the ayah currently under the sticky header,
@@ -2087,7 +2097,7 @@ function ayahCardHTML(a) {
       <span class="ayah-no">${t('ayahLabel', a.numberInSurah)}</span>
       <div class="foot-side end">
         ${revealBtn}
-        <button class="icon-btn play-btn" id="play-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah}, ${a.number})" title="${esc(t('listen'))}" aria-label="${esc(t('listen'))}">${playIconSVG()}</button>
+        <button class="icon-btn play-btn" id="play-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah})" title="${esc(t('listen'))}" aria-label="${esc(t('listen'))}">${playIconSVG()}</button>
       </div>
     </div>
     <div class="tafsir-wrap" id="tafsir-wrap-${a.numberInSurah}" hidden>
