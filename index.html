@@ -829,6 +829,7 @@
   }
   .feedback-submit:active { transform: scale(.97); }
   .feedback-submit:disabled { opacity: .6; }
+  .feedback-privacy { font-size: .74rem; color: var(--muted); text-align: center; line-height: 1.5; }
   .feedback-status { font-size: .85rem; text-align: center; padding: 4px 0; }
   .feedback-status.ok { color: var(--primary); font-weight: 600; }
   .feedback-status.err { color: var(--danger); font-weight: 600; }
@@ -856,6 +857,7 @@
         <textarea id="feedback-message" required maxlength="4000" rows="5"></textarea>
       </label>
       <button type="submit" class="feedback-submit" id="feedback-submit"></button>
+      <p class="feedback-privacy" id="feedback-privacy"></p>
       <div class="feedback-status" id="feedback-status" hidden></div>
     </form>
   </div>
@@ -954,7 +956,9 @@ const I18N = {
     feedbackSending: 'جارٍ الإرسال…',
     feedbackSuccess: 'شكرًا لك! تم إرسال ملاحظتك ✓',
     feedbackErr: 'تعذّر الإرسال. حاول مرة أخرى.',
-    feedbackInvalidEmail: 'يرجى إدخال بريد إلكتروني صحيح.'
+    feedbackInvalidEmail: 'يرجى إدخال بريد إلكتروني صحيح.',
+    feedbackRateLimited: 'محاولات كثيرة جدًا. يرجى الانتظار قليلًا ثم إعادة المحاولة.',
+    feedbackPrivacy: 'يُستخدم بريدك الإلكتروني فقط للرد على ملاحظتك، ولا يُشارك مع أي جهة.'
   },
   en: {
     appName: 'Hifz',
@@ -1017,7 +1021,9 @@ const I18N = {
     feedbackSending: 'Sending…',
     feedbackSuccess: 'Thank you! Your feedback was sent ✓',
     feedbackErr: "Couldn't send it. Please try again.",
-    feedbackInvalidEmail: 'Please enter a valid email address.'
+    feedbackInvalidEmail: 'Please enter a valid email address.',
+    feedbackRateLimited: 'Too many attempts. Please wait a bit and try again.',
+    feedbackPrivacy: "Your email is used only to reply to your feedback, and is never shared."
   }
 };
 function t(key, ...args) {
@@ -1071,7 +1077,7 @@ function toggleLang() {
 }
 
 const app = document.getElementById('app');
-const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -1314,15 +1320,33 @@ const TAFSIRS = [
 let tafsirId = LS.get('hifz:tafsirSrc', 16);
 const tafsirCache = LS.get('hifz:tafsirCache', {}); // "{tafsirId}:{surah}:{ayah}" -> sanitized HTML
 
-// The API returns formatted HTML for the tafsir body. Strip anything that could
-// execute script before it's ever injected — defense in depth even though the
-// source is a trusted, reputable provider.
+// The API returns formatted HTML for the tafsir body. Rather than pattern-match
+// for dangerous substrings (regexes miss unquoted attributes like onerror=x,
+// obfuscated "java\tscript:" schemes, etc.), parse it into an inert DOM (via
+// DOMParser — nothing in it executes) and rebuild using only an allowlist of
+// tags/attributes actually used by tafsir text. Anything else is unwrapped to
+// its plain text rather than dropped, so no content is lost — defense in
+// depth even though the source is a trusted, reputable provider.
+const TAFSIR_ALLOWED_TAGS = new Set(['P', 'SPAN', 'BR', 'STRONG', 'EM', 'B', 'I', 'UL', 'OL', 'LI']);
 function sanitizeTafsirHtml(html) {
-  return String(html)
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/javascript:/gi, '');
+  const doc = new DOMParser().parseFromString(String(html), 'text/html');
+  cleanTafsirNode(doc.body);
+  return doc.body.innerHTML;
+}
+function cleanTafsirNode(node) {
+  [...node.childNodes].forEach(child => {
+    if (child.nodeType === Node.COMMENT_NODE) { child.remove(); return; }
+    if (child.nodeType !== Node.ELEMENT_NODE) return;   // leave text nodes as-is
+    if (!TAFSIR_ALLOWED_TAGS.has(child.tagName)) {
+      child.replaceWith(document.createTextNode(child.textContent));
+      return;
+    }
+    [...child.attributes].forEach(attr => {
+      const keep = child.tagName === 'SPAN' && attr.name === 'class' && attr.value.trim() === 'blue';
+      if (!keep) child.removeAttribute(attr.name);
+    });
+    cleanTafsirNode(child);
+  });
 }
 
 // Some tafsir entries (especially a surah's first ayah, which can carry a full
@@ -2005,6 +2029,7 @@ function refreshFeedbackLabels() {
   document.getElementById('feedback-msg-label').textContent = t('feedbackMessage');
   document.getElementById('feedback-message').placeholder = t('feedbackMessagePh');
   document.getElementById('feedback-submit').textContent = t('feedbackSubmit');
+  document.getElementById('feedback-privacy').textContent = t('feedbackPrivacy');
 }
 function openFeedback() {
   refreshFeedbackLabels();
@@ -2042,6 +2067,10 @@ async function submitFeedback(event) {
       setTimeout(closeFeedback, 1800);
     } else if (j.error === 'invalid_email') {
       statusEl.textContent = t('feedbackInvalidEmail');
+      statusEl.className = 'feedback-status err';
+      statusEl.hidden = false;
+    } else if (j.error === 'rate_limited') {
+      statusEl.textContent = t('feedbackRateLimited');
       statusEl.className = 'feedback-status err';
       statusEl.hidden = false;
     } else {

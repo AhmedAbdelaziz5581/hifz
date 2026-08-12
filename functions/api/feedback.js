@@ -1,5 +1,8 @@
 // Cloudflare Pages Function — POST /api/feedback
 // Stores { email, message } into the D1 database bound as `DB` (see wrangler.toml).
+const RATE_LIMIT_MAX = 5;          // max submissions...
+const RATE_LIMIT_WINDOW_MIN = 10;  // ...per IP, per this many minutes
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 
@@ -17,9 +20,16 @@ export async function onRequestPost(context) {
   if (email.length > 200 || message.length > 4000) return json({ error: 'too_long' }, 400);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid_email' }, 400);
 
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+
   try {
-    await env.DB.prepare('INSERT INTO feedback (email, message) VALUES (?, ?)')
-      .bind(email, message)
+    const recent = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM feedback WHERE ip = ? AND created_at > datetime('now', '-${RATE_LIMIT_WINDOW_MIN} minutes')`
+    ).bind(ip).first();
+    if (recent && recent.c >= RATE_LIMIT_MAX) return json({ error: 'rate_limited' }, 429);
+
+    await env.DB.prepare('INSERT INTO feedback (email, message, ip) VALUES (?, ?, ?)')
+      .bind(email, message, ip)
       .run();
     return json({ ok: true });
   } catch (err) {
