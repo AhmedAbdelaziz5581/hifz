@@ -1535,7 +1535,9 @@ function renderHome() {
     const bName = lang === 'ar' ? bookmark.surahAr : bookmark.surahEn;
     contBtn = `<button class="continue-btn bookmark-cta" onclick="openBookmark()">${bookmarkIconSVG(true)}<span>${esc(t('continueBookmark', bName, bookmark.page))}</span></button>`;
   } else if (lastVisit) {
-    contBtn = `<button class="continue-btn" onclick="openSurah(${lastVisit.surah})">${esc(t('cont', lastVisit.name))} <span class="arw">${contArrow}</span></button>`;
+    // Fall back to the old { name } shape for entries saved before nameAr/nameEn existed.
+    const lName = (lang === 'ar' ? lastVisit.nameAr : lastVisit.nameEn) || lastVisit.name;
+    contBtn = `<button class="continue-btn" onclick="openSurah(${lastVisit.surah})">${esc(t('cont', lName))} <span class="arw">${contArrow}</span></button>`;
   }
   let html = `
     <div class="hero">
@@ -1660,7 +1662,7 @@ async function openSurah(n) {
       <br><br><button class="pill-btn" onclick="goHome()">${esc(t('back'))}</button></div>`;
     return;
   }
-  lastVisit = { surah: n, name: state.surah.englishName };
+  lastVisit = { surah: n, nameAr: state.surah.name, nameEn: state.surah.englishName };
   LS.set('hifz:last', lastVisit);
   sessionStorage.setItem('hifz:visitedSurah', '1');
   renderSurah();
