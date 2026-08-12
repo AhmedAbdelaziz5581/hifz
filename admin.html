@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Hifz — Feedback Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf7f1;
+    --card: #ffffff;
+    --ink: #1e293b;
+    --muted: #64748b;
+    --primary: #0e6b5c;
+    --primary-soft: #e3f0ed;
+    --gold: #c9a227;
+    --border: #e8e2d6;
+    --danger: #b4552d;
+    --radius: 14px;
+    --shadow: 0 1px 3px rgba(30, 41, 59, .06), 0 4px 16px rgba(30, 41, 59, .05);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Outfit', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+  }
+  button { font-family: inherit; cursor: pointer; }
+  input { font-family: inherit; }
+
+  .wrap { max-width: 900px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: .85rem; margin-bottom: 24px; }
+
+  /* ---------- Login gate ---------- */
+  .login-box {
+    max-width: 360px; margin: 80px auto 0;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 28px 24px; text-align: center;
+  }
+  .login-box h1 { margin-bottom: 16px; }
+  .login-box input {
+    width: 100%; padding: 11px 14px; border-radius: 999px;
+    border: 1.5px solid var(--border); font-size: .95rem;
+    margin-bottom: 12px; outline: none;
+  }
+  .login-box input:focus { border-color: var(--primary); }
+  .login-box button {
+    width: 100%; padding: 11px; border-radius: 999px;
+    background: var(--primary); color: #fff; border: none;
+    font-weight: 600; font-size: .95rem;
+  }
+  .login-box button:active { transform: scale(.98); }
+  .login-err { color: var(--danger); font-size: .82rem; margin-top: 10px; min-height: 1em; }
+
+  /* ---------- Dashboard ---------- */
+  .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; gap: 12px; flex-wrap: wrap; }
+  .logout-btn {
+    background: none; border: 1.5px solid var(--border); color: var(--muted);
+    padding: 7px 14px; border-radius: 999px; font-size: .8rem; font-weight: 600;
+  }
+  .refresh-btn {
+    background: var(--primary-soft); border: 1.5px solid var(--primary); color: var(--primary);
+    padding: 7px 14px; border-radius: 999px; font-size: .8rem; font-weight: 600;
+  }
+  .count { color: var(--muted); font-size: .85rem; }
+
+  .fb-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 16px 18px; margin-bottom: 12px;
+  }
+  .fb-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .fb-email { font-weight: 600; font-size: .88rem; word-break: break-all; }
+  .fb-date { color: var(--muted); font-size: .76rem; white-space: nowrap; }
+  .fb-stars { color: var(--gold); font-size: .85rem; margin-bottom: 6px; }
+  .fb-msg { font-size: .92rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+
+  .empty, .loading, .err-box { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .err-box { color: var(--danger); }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap"></div>
+
+<script>
+  const API = '/api/admin/feedback';
+  const KEY_STORE = 'hifz:adminKey';
+
+  function render() {
+    const key = sessionStorage.getItem(KEY_STORE);
+    if (!key) return renderLogin();
+    renderDashboard(key);
+  }
+
+  function renderLogin(err) {
+    document.getElementById('wrap').innerHTML = `
+      <div class="login-box">
+        <h1>Feedback Admin</h1>
+        <input type="password" id="pw" placeholder="Admin key" autofocus>
+        <button onclick="submitLogin()">Sign in</button>
+        <div class="login-err">${err ? esc(err) : ''}</div>
+      </div>`;
+    document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(); });
+  }
+
+  async function submitLogin() {
+    const pw = document.getElementById('pw').value.trim();
+    if (!pw) return;
+    sessionStorage.setItem(KEY_STORE, pw);
+    await renderDashboard(pw, true);
+  }
+
+  function logout() {
+    sessionStorage.removeItem(KEY_STORE);
+    render();
+  }
+
+  async function renderDashboard(key, isFreshLogin) {
+    document.getElementById('wrap').innerHTML = `
+      <div class="toolbar">
+        <div>
+          <h1>Feedback</h1>
+          <div class="sub">Submissions from the Hifz feedback form</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="refresh-btn" onclick="renderDashboard(sessionStorage.getItem('${KEY_STORE}'))">Refresh</button>
+          <button class="logout-btn" onclick="logout()">Sign out</button>
+        </div>
+      </div>
+      <div class="loading" id="list">Loading…</div>`;
+
+    let res;
+    try {
+      res = await fetch(API, { headers: { 'X-Admin-Key': key } });
+    } catch {
+      document.getElementById('list').outerHTML = '<div class="err-box">Network error — try refreshing.</div>';
+      return;
+    }
+
+    if (res.status === 401) {
+      sessionStorage.removeItem(KEY_STORE);
+      renderLogin('Incorrect admin key.');
+      return;
+    }
+    if (!res.ok) {
+      document.getElementById('list').outerHTML = '<div class="err-box">Something went wrong loading feedback.</div>';
+      return;
+    }
+
+    const data = await res.json();
+    const rows = data.feedback || [];
+    const listEl = document.getElementById('list');
+    if (!rows.length) {
+      listEl.outerHTML = '<div class="empty">No feedback submitted yet.</div>';
+      return;
+    }
+    listEl.outerHTML = `<div class="count">${rows.length} submission${rows.length === 1 ? '' : 's'}</div>` +
+      rows.map(r => `
+        <div class="fb-card">
+          <div class="fb-head">
+            <span class="fb-email">${esc(r.email)}</span>
+            <span class="fb-date">${esc(formatDate(r.created_at))}</span>
+          </div>
+          ${r.rating ? `<div class="fb-stars">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</div>` : ''}
+          <div class="fb-msg">${esc(r.message)}</div>
+        </div>`).join('');
+  }
+
+  function formatDate(s) {
+    try {
+      return new Date(s.replace(' ', 'T') + 'Z').toLocaleString();
+    } catch { return s; }
+  }
+
+  function esc(str) {
+    return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  render();
+</script>
+</body>
+</html>

@@ -818,6 +818,7 @@
     color: #fff;
     box-shadow: 0 6px 16px -4px rgba(14,107,92,.55);
   }
+  .feedback-fab[hidden] { display: none; }
   .feedback-fab svg { width: 24px; height: 24px; }
   .feedback-fab:active { transform: scale(.92); }
   .feedback-overlay {
@@ -899,7 +900,7 @@
 <div class="app" id="app"></div>
 <div class="toast" id="toast"></div>
 
-<button class="feedback-fab" id="feedback-fab" onclick="openFeedback()" aria-label="Feedback"></button>
+<button class="feedback-fab" id="feedback-fab" onclick="openFeedback()" aria-label="Feedback" hidden></button>
 
 <div class="feedback-overlay" id="feedback-overlay" hidden onclick="if(event.target===this) closeFeedback()">
   <div class="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
@@ -1617,6 +1618,7 @@ async function openSurah(n) {
   }
   lastVisit = { surah: n, name: state.surah.englishName };
   LS.set('hifz:last', lastVisit);
+  sessionStorage.setItem('hifz:visitedSurah', '1');
   renderSurah();
 }
 
@@ -1626,6 +1628,17 @@ function goHome() {
   state.surah = null;
   render();
   window.scrollTo(0, 0);
+  maybeShowFeedbackFab();
+}
+
+// Feedback FAB stays out of the way until the user has actually finished
+// a reading/memorizing session (visited a surah, then returned home) —
+// avoids nagging first-time visitors before they've used the app.
+function maybeShowFeedbackFab() {
+  if (sessionStorage.getItem('hifz:visitedSurah') === '1') {
+    const fabEl = document.getElementById('feedback-fab');
+    if (fabEl) fabEl.hidden = false;
+  }
 }
 
 function renderSurah() {
@@ -2204,6 +2217,7 @@ async function submitFeedback(event) {
 applyDir();
 render();
 refreshFeedbackLabels();
+maybeShowFeedbackFab();
 </script>
 </body>
 </html>
