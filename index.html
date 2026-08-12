@@ -415,6 +415,49 @@
   .bookmark-btn.on { border-color: var(--gold); color: #8a6d10; background: var(--gold-soft); }
   .tafsir-page-btn svg { width: 17px; height: 17px; }
   .tafsir-page-btn.on { border-color: var(--info); color: var(--info); background: var(--info-soft); }
+
+  /* Hover tooltip for icon-only buttons (bookmark, tafsir) — native title
+     attributes are slow to appear and plainly styled, so use a small
+     custom bubble instead. Hover-only by nature; touch users still have
+     the aria-label for screen readers and the icon itself for affordance. */
+  [data-tip] { position: relative; }
+  [data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 9px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    background: var(--ink);
+    color: #fff;
+    font-size: .72rem;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 8px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .15s ease, transform .15s ease;
+    z-index: 50;
+    box-shadow: 0 4px 10px rgba(0,0,0,.18);
+  }
+  [data-tip]::before {
+    content: '';
+    position: absolute;
+    bottom: calc(100% + 3px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    border: 5px solid transparent;
+    border-top-color: var(--ink);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .15s ease, transform .15s ease;
+    z-index: 50;
+  }
+  [data-tip]:hover::after, [data-tip]:hover::before,
+  [data-tip]:focus-visible::after, [data-tip]:focus-visible::before {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
   .cont-btn {
     display: inline-flex; align-items: center; gap: 7px;
     padding: 9px 16px;
@@ -1743,9 +1786,9 @@ function readPageHTML(s) {
       </div>
       <button class="pg-nav" onclick="gotoReadPage(${idx + 1})" ${idx === pages.length - 1 ? 'disabled' : ''} aria-label="next">${nextArrow}</button>
       <div class="page-actions">
-        <button class="pg-nav bookmark-btn ${isBookmarkedPage ? 'on' : ''}" id="bookmark-btn" onclick="setBookmarkHere()" title="${esc(t('bookmarkHere'))}">${bookmarkIconSVG(isBookmarkedPage)}</button>
-        <button class="pg-nav tafsir-page-btn ${tafsirOpenAyah ? 'on' : ''}" id="tafsir-page-btn" onclick="toggleTafsirPanelDefault()" title="${esc(t('tafsirLabel'))}">${bookIconSVG()}</button>
-        <button class="cont-btn ${continuousMode ? 'on' : ''}" id="cont-btn" onclick="toggleContinuous()">${continuousBtnInner()}</button>
+        <button class="pg-nav bookmark-btn ${isBookmarkedPage ? 'on' : ''}" onclick="setBookmarkHere()" aria-label="${esc(t('bookmarkHere'))}" data-tip="${esc(t('bookmarkHere'))}">${bookmarkIconSVG(isBookmarkedPage)}</button>
+        <button class="pg-nav tafsir-page-btn ${tafsirOpenAyah ? 'on' : ''}" onclick="toggleTafsirPanelDefault()" aria-label="${esc(t('tafsirLabel'))}" data-tip="${esc(t('tafsirLabel'))}">${bookIconSVG()}</button>
+        <button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()">${continuousBtnInner()}</button>
       </div>
     </div>`;
   let html = pageBar + `<div class="mushaf-page">
@@ -1866,8 +1909,7 @@ async function showTafsirPanel(numInSurah) {
   if (title) title.textContent = t('ayahLabel', numInSurah);
   const select = document.getElementById('tafsir-panel-select');
   if (select) select.value = String(tafsirId);
-  const pageBtn = document.getElementById('tafsir-page-btn');
-  if (pageBtn) pageBtn.classList.add('on');
+  document.querySelectorAll('.tafsir-page-btn').forEach(b => b.classList.add('on'));
   panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   await renderTafsirPanelBody(numInSurah);
 }
@@ -1889,8 +1931,7 @@ function hideTafsirPanel() {
   state.tafsirAyah = null;
   const panel = document.getElementById('tafsir-panel');
   if (panel) panel.hidden = true;
-  const pageBtn = document.getElementById('tafsir-page-btn');
-  if (pageBtn) pageBtn.classList.remove('on');
+  document.querySelectorAll('.tafsir-page-btn').forEach(b => b.classList.remove('on'));
 }
 // Explicit, discoverable entry point in the page-bar (the ayah-marker tap is a
 // secondary shortcut for jumping straight to a specific ayah's Tafsir).
@@ -1945,10 +1986,12 @@ function stopContinuous() {
   updateContinuousBtn();
 }
 function updateContinuousBtn() {
-  const b = document.getElementById('cont-btn');
-  if (!b) return;
-  b.classList.toggle('on', continuousMode);
-  b.innerHTML = continuousBtnInner();
+  // The mushaf page renders a cont-btn at both the top and bottom page-bar —
+  // keep both in sync rather than just the first match.
+  document.querySelectorAll('.cont-btn').forEach(b => {
+    b.classList.toggle('on', continuousMode);
+    b.innerHTML = continuousBtnInner();
+  });
 }
 function advanceContinuous(numInSurah) {
   const next = state.surah.ayahs.find(x => x.numberInSurah === numInSurah + 1);
