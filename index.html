@@ -764,11 +764,102 @@
     .ayah-ar { font-size: 1.6rem; line-height: 2.2; }
     .hero h1 { font-size: 1.4rem; }
   }
+
+  /* ---------- Feedback ---------- */
+  .feedback-fab {
+    position: fixed;
+    bottom: 20px; inset-inline-end: 18px;
+    z-index: 40;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 6px 16px -4px rgba(14,107,92,.55);
+  }
+  .feedback-fab svg { width: 24px; height: 24px; }
+  .feedback-fab:active { transform: scale(.92); }
+  .feedback-overlay {
+    position: fixed; inset: 0;
+    z-index: 60;
+    background: rgba(20,20,20,.5);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .feedback-modal {
+    width: 100%; max-width: 420px;
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: 0 20px 50px -12px rgba(0,0,0,.4);
+    overflow: hidden;
+  }
+  .feedback-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px;
+    background: var(--primary-soft);
+  }
+  .feedback-head h2 { font-size: 1.05rem; font-weight: 700; color: var(--primary); }
+  .feedback-x {
+    width: 30px; height: 30px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    color: var(--muted);
+  }
+  .feedback-x:active { transform: scale(.9); }
+  #feedback-form { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+  .feedback-field { display: flex; flex-direction: column; gap: 6px; }
+  .feedback-field span { font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .feedback-field input, .feedback-field textarea {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: .92rem;
+    font-family: inherit;
+    color: var(--ink);
+    resize: vertical;
+  }
+  .feedback-field input:focus, .feedback-field textarea:focus { outline: none; border-color: var(--primary); }
+  .feedback-submit {
+    background: var(--primary);
+    color: #fff;
+    font-weight: 700;
+    font-size: .95rem;
+    padding: 12px;
+    border-radius: 999px;
+  }
+  .feedback-submit:active { transform: scale(.97); }
+  .feedback-submit:disabled { opacity: .6; }
+  .feedback-status { font-size: .85rem; text-align: center; padding: 4px 0; }
+  .feedback-status.ok { color: var(--primary); font-weight: 600; }
+  .feedback-status.err { color: var(--danger); font-weight: 600; }
 </style>
 </head>
 <body>
 <div class="app" id="app"></div>
 <div class="toast" id="toast"></div>
+
+<button class="feedback-fab" id="feedback-fab" onclick="openFeedback()" aria-label="Feedback"></button>
+
+<div class="feedback-overlay" id="feedback-overlay" hidden onclick="if(event.target===this) closeFeedback()">
+  <div class="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+    <div class="feedback-head">
+      <h2 id="feedback-title"></h2>
+      <button class="feedback-x" onclick="closeFeedback()" aria-label="Close">✕</button>
+    </div>
+    <form id="feedback-form" onsubmit="return submitFeedback(event)">
+      <label class="feedback-field">
+        <span id="feedback-email-label"></span>
+        <input type="email" id="feedback-email" required maxlength="200" autocomplete="email">
+      </label>
+      <label class="feedback-field">
+        <span id="feedback-msg-label"></span>
+        <textarea id="feedback-message" required maxlength="4000" rows="5"></textarea>
+      </label>
+      <button type="submit" class="feedback-submit" id="feedback-submit"></button>
+      <div class="feedback-status" id="feedback-status" hidden></div>
+    </form>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -853,7 +944,17 @@ const I18N = {
     tafsirErr: 'تعذّر تحميل التفسير. تحقّق من اتصالك بالإنترنت.',
     tafsirClose: 'إغلاق',
     tafsirMore: 'اقرأ المزيد',
-    tafsirLess: 'عرض أقل'
+    tafsirLess: 'عرض أقل',
+    feedbackLabel: 'ملاحظات',
+    feedbackTitle: 'شاركنا رأيك',
+    feedbackEmail: 'بريدك الإلكتروني',
+    feedbackMessage: 'ملاحظتك أو مشكلتك',
+    feedbackMessagePh: 'اكتب ملاحظتك هنا…',
+    feedbackSubmit: 'إرسال',
+    feedbackSending: 'جارٍ الإرسال…',
+    feedbackSuccess: 'شكرًا لك! تم إرسال ملاحظتك ✓',
+    feedbackErr: 'تعذّر الإرسال. حاول مرة أخرى.',
+    feedbackInvalidEmail: 'يرجى إدخال بريد إلكتروني صحيح.'
   },
   en: {
     appName: 'Hifz',
@@ -906,7 +1007,17 @@ const I18N = {
     tafsirErr: "Couldn't load tafsir. Check your internet connection.",
     tafsirClose: 'Close',
     tafsirMore: 'Read more',
-    tafsirLess: 'Show less'
+    tafsirLess: 'Show less',
+    feedbackLabel: 'Feedback',
+    feedbackTitle: 'Share your feedback',
+    feedbackEmail: 'Your email',
+    feedbackMessage: 'Your comment or issue',
+    feedbackMessagePh: 'Write your feedback here…',
+    feedbackSubmit: 'Send',
+    feedbackSending: 'Sending…',
+    feedbackSuccess: 'Thank you! Your feedback was sent ✓',
+    feedbackErr: "Couldn't send it. Please try again.",
+    feedbackInvalidEmail: 'Please enter a valid email address.'
   }
 };
 function t(key, ...args) {
@@ -956,6 +1067,7 @@ function toggleLang() {
   LS.set('hifz:lang', lang);
   applyDir();
   render();
+  refreshFeedbackLabels();
 }
 
 const app = document.getElementById('app');
@@ -1879,9 +1991,77 @@ function toggleMem(key, numInSurah) {
   updateAyahCard(numInSurah);
 }
 
+/* ---------------- Feedback ---------------- */
+function chatIconSVG() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
+}
+function refreshFeedbackLabels() {
+  const fab = document.getElementById('feedback-fab');
+  if (!fab) return;
+  fab.innerHTML = chatIconSVG();
+  fab.title = t('feedbackLabel');
+  document.getElementById('feedback-title').textContent = t('feedbackTitle');
+  document.getElementById('feedback-email-label').textContent = t('feedbackEmail');
+  document.getElementById('feedback-msg-label').textContent = t('feedbackMessage');
+  document.getElementById('feedback-message').placeholder = t('feedbackMessagePh');
+  document.getElementById('feedback-submit').textContent = t('feedbackSubmit');
+}
+function openFeedback() {
+  refreshFeedbackLabels();
+  document.getElementById('feedback-overlay').hidden = false;
+  document.getElementById('feedback-status').hidden = true;
+  document.getElementById('feedback-email').focus();
+}
+function closeFeedback() {
+  document.getElementById('feedback-overlay').hidden = true;
+}
+async function submitFeedback(event) {
+  event.preventDefault();
+  const emailEl = document.getElementById('feedback-email');
+  const msgEl = document.getElementById('feedback-message');
+  const statusEl = document.getElementById('feedback-status');
+  const submitBtn = document.getElementById('feedback-submit');
+  const email = emailEl.value.trim();
+  const message = msgEl.value.trim();
+  if (!email || !message) return false;
+  submitBtn.disabled = true;
+  submitBtn.textContent = t('feedbackSending');
+  statusEl.hidden = true;
+  try {
+    const r = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, message })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) {
+      statusEl.textContent = t('feedbackSuccess');
+      statusEl.className = 'feedback-status ok';
+      statusEl.hidden = false;
+      emailEl.value = ''; msgEl.value = '';
+      setTimeout(closeFeedback, 1800);
+    } else if (j.error === 'invalid_email') {
+      statusEl.textContent = t('feedbackInvalidEmail');
+      statusEl.className = 'feedback-status err';
+      statusEl.hidden = false;
+    } else {
+      throw new Error('failed');
+    }
+  } catch {
+    statusEl.textContent = t('feedbackErr');
+    statusEl.className = 'feedback-status err';
+    statusEl.hidden = false;
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = t('feedbackSubmit');
+  }
+  return false;
+}
+
 /* ---------------- Init ---------------- */
 applyDir();
 render();
+refreshFeedbackLabels();
 </script>
 </body>
 </html>
