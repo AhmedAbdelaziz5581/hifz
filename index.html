@@ -1535,8 +1535,12 @@ function renderHome() {
     const bName = lang === 'ar' ? bookmark.surahAr : bookmark.surahEn;
     contBtn = `<button class="continue-btn bookmark-cta" onclick="openBookmark()">${bookmarkIconSVG(true)}<span>${esc(t('continueBookmark', bName, bookmark.page))}</span></button>`;
   } else if (lastVisit) {
-    // Fall back to the old { name } shape for entries saved before nameAr/nameEn existed.
-    const lName = (lang === 'ar' ? lastVisit.nameAr : lastVisit.nameEn) || lastVisit.name;
+    // Look the name up fresh from the (locally cached) surah list so this
+    // reflects the current language immediately, even for a lastVisit saved
+    // before nameAr/nameEn existed or cached from an older visit.
+    const meta = surahList && surahList.find(s => s.number === lastVisit.surah);
+    const lName = meta ? (lang === 'ar' ? meta.name : meta.englishName)
+      : (lang === 'ar' ? lastVisit.nameAr : lastVisit.nameEn) || lastVisit.name;
     contBtn = `<button class="continue-btn" onclick="openSurah(${lastVisit.surah})">${esc(t('cont', lName))} <span class="arw">${contArrow}</span></button>`;
   }
   let html = `
