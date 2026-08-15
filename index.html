@@ -1669,7 +1669,7 @@ function renderIndexStrip() {
     const full = memCountSurah(s.number, s.numberOfAyahs) === s.numberOfAyahs;
     const chipName = lang === 'ar' ? stripHarakat(shortArName(s.name)) : s.englishName;
     const chipNameClass = lang === 'ar' ? 'cname ar-name' : 'cname';
-    return `<button class="index-chip ${full ? 'done' : ''}" onclick="openSurah(${s.number})" title="${esc(s.englishName)}">
+    return `<button class="index-chip ${full ? 'done' : ''}" onclick="openSurah(${s.number})">
       <span class="cnum">${toDigits(s.number)}</span>
       <span class="${chipNameClass}">${esc(chipName)}</span>
     </button>`;
