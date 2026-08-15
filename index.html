@@ -851,8 +851,14 @@
     .ayah-no { padding: 5px 9px; font-size: .74rem; }
     /* English's "Mark memorized" stays wider than Arabic's label even after
        the shrink above — wrap it to two lines rather than letting it push
-       into the centered ayah-number badge. */
-    .mem-btn { white-space: normal; text-align: center; max-width: 74px; line-height: 1.15; }
+       into the centered ayah-number badge. A 999px capsule radius clips
+       wrapped two-line text at the corners, so relax it to a normal rounded
+       rectangle here, and set justify-content (text-align doesn't govern
+       alignment inside a flex box) so the wrapped lines actually center. */
+    .mem-btn {
+      white-space: normal; text-align: center; max-width: 74px; line-height: 1.15;
+      border-radius: 14px; justify-content: center;
+    }
 
     /* The end side now holds three icon buttons (reveal/mic/play) — shrink
        them to match the tafsir-btn/pg-nav treatment above so they fit. */
@@ -889,7 +895,10 @@
 
     /* English's "Mark memorized" is long enough to still collide even
        shrunk — let it wrap to two lines instead of forcing extra width. */
-    .mem-btn { white-space: normal; text-align: center; max-width: 64px; line-height: 1.15; }
+    .mem-btn {
+      white-space: normal; text-align: center; max-width: 64px; line-height: 1.15;
+      border-radius: 12px; justify-content: center;
+    }
     .tafsir-btn { width: 32px; height: 32px; }
   }
 
