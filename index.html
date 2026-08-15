@@ -787,7 +787,10 @@
   .lang-toggle {
     position: absolute;
     top: 14px; inset-inline-end: 16px;
-    z-index: 2;
+    /* Higher than the `.hero > * { z-index: 2 }` default all its siblings get —
+       without this, the basmala line (which comes later in the DOM and can
+       grow wide enough to reach this corner) paints over it and swallows clicks. */
+    z-index: 5;
     min-width: 40px;
     padding: 6px 12px;
     border-radius: 999px;
