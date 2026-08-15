@@ -31,6 +31,11 @@
     background: var(--bg);
     color: var(--ink);
     min-height: 100vh;
+    /* Hover tooltips (data-tip::after) are opacity:0 but still laid out, so a
+       tooltip centered on a button near the page edge can poke past the
+       viewport even while invisible. Clip horizontally only — body has no
+       fixed height, so this doesn't constrain the tooltips' vertical popup. */
+    overflow-x: hidden;
   }
   button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
   input { font-family: inherit; }
@@ -676,6 +681,25 @@
   .play-btn:hover { background: #0c5e51; border-color: #0c5e51; color: #fff; }
   .play-btn.playing { background: var(--gold); border-color: var(--gold); box-shadow: 0 3px 8px -2px rgba(201,162,39,.5); }
   .reveal-btn.on { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+  .mic-btn.listening {
+    background: #c0392b; border-color: #c0392b; color: #fff;
+    box-shadow: 0 3px 10px -2px rgba(192,57,43,.55);
+    animation: micPulse 1.4s ease-in-out infinite;
+  }
+  @keyframes micPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(192,57,43,.45), 0 3px 10px -2px rgba(192,57,43,.55); }
+    50% { box-shadow: 0 0 0 8px rgba(192,57,43,0), 0 3px 10px -2px rgba(192,57,43,.55); }
+  }
+  .ayah-ar .w.wrong { color: var(--danger); text-decoration: underline wavy var(--danger); animation: wordShake .35s ease; }
+  @keyframes wordShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-3px); }
+    75% { transform: translateX(3px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mic-btn.listening { animation: none; }
+    .ayah-ar .w.wrong { animation: none; }
+  }
   .mem-btn {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 9px 16px;
@@ -822,6 +846,15 @@
     .tafsir-btn span { display: none; }
     .mem-btn { padding: 9px 12px; font-size: .78rem; }
     .ayah-no { padding: 5px 9px; font-size: .74rem; }
+    /* English's "Mark memorized" stays wider than Arabic's label even after
+       the shrink above — wrap it to two lines rather than letting it push
+       into the centered ayah-number badge. */
+    .mem-btn { white-space: normal; text-align: center; max-width: 74px; line-height: 1.15; }
+
+    /* The end side now holds three icon buttons (reveal/mic/play) — shrink
+       them to match the tafsir-btn/pg-nav treatment above so they fit. */
+    .foot-side.end .icon-btn { width: 36px; height: 36px; }
+    .foot-side.end .icon-btn svg { width: 16px; height: 16px; }
 
     .mushaf-text { font-size: 1.65rem; line-height: 2.3; }
     .feedback-modal { max-width: 100%; }
@@ -848,6 +881,13 @@
     .foot-side { gap: 4px; }
     .mem-btn { padding: 6px 9px; font-size: .7rem; }
     .ayah-no { padding: 4px 7px; font-size: .68rem; }
+    .foot-side.end .icon-btn { width: 30px; height: 30px; }
+    .foot-side.end .icon-btn svg { width: 14px; height: 14px; }
+
+    /* English's "Mark memorized" is long enough to still collide even
+       shrunk — let it wrap to two lines instead of forcing extra width. */
+    .mem-btn { white-space: normal; text-align: center; max-width: 64px; line-height: 1.15; }
+    .tafsir-btn { width: 32px; height: 32px; }
   }
 
   /* ---------- Feedback ---------- */
@@ -1078,7 +1118,14 @@ const I18N = {
     feedbackRateLimited: 'محاولات كثيرة جدًا. يرجى الانتظار قليلًا ثم إعادة المحاولة.',
     feedbackPrivacy: 'يُستخدم بريدك الإلكتروني فقط للرد على ملاحظتك، ولا يُشارك مع أي جهة.',
     feedbackRating: 'قيّم تجربتك (اختياري)',
-    feedbackStarN: n => `${toDigits(n)} نجوم`
+    feedbackStarN: n => `${toDigits(n)} نجوم`,
+    listenPractice: 'تسميع صوتي',
+    micListening: 'جارٍ الاستماع… رددها بصوت واضح',
+    micUnsupported: 'المتصفح لا يدعم التعرف على الصوت',
+    micDenied: 'يرجى السماح باستخدام الميكروفون',
+    micError: 'حدث خطأ أثناء الاستماع',
+    micDone: 'أحسنت! تم التعرف على الآية كاملة ✓',
+    micTryWord: w => `حاول قول: ${w}`
   },
   en: {
     appName: 'Hifz',
@@ -1147,7 +1194,14 @@ const I18N = {
     feedbackRateLimited: 'Too many attempts. Please wait a bit and try again.',
     feedbackPrivacy: "Your email is used only to reply to your feedback, and is never shared.",
     feedbackRating: 'Rate your experience (optional)',
-    feedbackStarN: n => `${n} star${n === 1 ? '' : 's'}`
+    feedbackStarN: n => `${n} star${n === 1 ? '' : 's'}`,
+    listenPractice: 'Voice recitation practice',
+    micListening: 'Listening… recite clearly',
+    micUnsupported: "This browser doesn't support voice recognition",
+    micDenied: 'Please allow microphone access',
+    micError: 'Something went wrong while listening',
+    micDone: 'Great! The full ayah was recognized ✓',
+    micTryWord: w => `Try saying: ${w}`
   }
 };
 function t(key, ...args) {
@@ -1267,6 +1321,7 @@ function stopAudio() {
   audioState.key = null;
   document.querySelectorAll('.ayah-card.playing, .m-ayah.playing').forEach(el => el.classList.remove('playing'));
   document.querySelectorAll('.icon-btn.playing').forEach(el => { el.classList.remove('playing'); el.innerHTML = playIconSVG(); });
+  stopListening();   // audio playback and voice practice are mutually exclusive
 }
 
 // Start-of-word fractions weighted by word length — fallback pacing used only
@@ -2093,6 +2148,11 @@ function eyeSVG(open) {
     : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
 }
 
+// Inline SVG microphone icon for the voice-recitation-practice button.
+function micIconSVG() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
+}
+
 function ayahCardHTML(a) {
   const mem = state.mode === 'memorize';
   const key = state.surah.number + ':' + a.numberInSurah;
@@ -2122,6 +2182,7 @@ function ayahCardHTML(a) {
       <span class="ayah-no">${t('ayahLabel', a.numberInSurah)}</span>
       <div class="foot-side end">
         ${revealBtn}
+        <button class="icon-btn mic-btn" id="mic-${a.numberInSurah}" onclick="toggleListen(${a.numberInSurah})" aria-label="${esc(t('listenPractice'))}" data-tip="${esc(t('listenPractice'))}">${micIconSVG()}</button>
         <button class="icon-btn play-btn" id="play-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah})" aria-label="${esc(t('listen'))}" data-tip="${esc(t('listen'))}">${playIconSVG()}</button>
       </div>
     </div>
@@ -2184,6 +2245,159 @@ function revealAll(numInSurah) {
   const total = a.text.split(' ').length;
   const full = (state.revealed[numInSurah] || 0) >= total;
   setRevealCount(numInSurah, full ? 0 : total);            // eye toggles: full <-> hidden
+}
+
+/* ---------------- Voice recitation practice (memorize mode) ----------------
+   Uses the browser's built-in Speech Recognition to transcribe what the user
+   says and match it word-by-word against the ayah, revealing words as they're
+   correctly recognized. This is word-matching, not real tajweed/pronunciation
+   judgment — the browser has no way to assess recitation quality, only to
+   guess at which words were said. */
+let recog = null;            // active SpeechRecognition instance, or null
+let recogAyah = null;        // numberInSurah currently being listened to
+let recogWords = [];         // normalized expected words for the current ayah
+let recogPtr = 0;            // index of the next expected word
+let recogWrongStreak = 0;    // consecutive mismatches on the current word
+let recogManualStop = false; // guards against auto-restart after an intentional stop
+
+function speechRecognitionCtor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+// Small edit-distance tolerance so minor ASR misrecognition doesn't always
+// register as "wrong" — full mismatches still get flagged.
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+function wordsMatch(spoken, expected) {
+  if (!spoken || !expected) return false;
+  if (spoken === expected) return true;
+  return levenshtein(spoken, expected) <= Math.max(1, Math.floor(expected.length * 0.3));
+}
+
+function toggleListen(numInSurah) {
+  if (recogAyah === numInSurah) stopListening();
+  else startListening(numInSurah);
+}
+
+function startListening(numInSurah) {
+  const SR = speechRecognitionCtor();
+  if (!SR) { toast(t('micUnsupported')); return; }
+  const a = state.surah.ayahs.find(x => x.numberInSurah === numInSurah);
+  if (!a) return;
+
+  stopAudio();   // also stops any other in-progress listening session
+
+  recogAyah = numInSurah;
+  recogWords = a.text.split(' ').map(w => normalizeArSearch(w));
+  recogPtr = 0;
+  recogWrongStreak = 0;
+  recogManualStop = false;
+  setRevealCount(numInSurah, 0);
+
+  recog = new SR();
+  recog.lang = 'ar-SA';
+  recog.continuous = true;
+  recog.interimResults = true;
+  recog.maxAlternatives = 1;
+  recog.onresult = e => handleRecogResult(e, numInSurah);
+  recog.onerror = e => handleRecogError(e, numInSurah);
+  recog.onend = () => {
+    // Some browsers end continuous recognition after a silence/time limit —
+    // restart transparently unless the user actually asked to stop.
+    if (recog && recogAyah === numInSurah && !recogManualStop) {
+      try { recog.start(); } catch { stopListening(); }
+    }
+  };
+
+  updateMicBtn(numInSurah, true);
+  try { recog.start(); } catch { toast(t('micDenied')); stopListening(); }
+}
+
+function stopListening() {
+  recogManualStop = true;
+  const prevAyah = recogAyah;
+  const r = recog;
+  recog = null;
+  recogAyah = null;
+  if (r) {
+    r.onresult = null; r.onend = null; r.onerror = null;
+    try { r.stop(); } catch {}
+  }
+  if (prevAyah != null) updateMicBtn(prevAyah, false);
+}
+
+function handleRecogResult(e, numInSurah) {
+  if (recogAyah !== numInSurah) return;
+  for (let i = e.resultIndex; i < e.results.length; i++) {
+    const res = e.results[i];
+    if (!res.isFinal) continue;
+    const tokens = (res[0].transcript || '').trim().split(/\s+/).filter(Boolean).map(w => normalizeArSearch(w));
+    for (const tok of tokens) {
+      if (recogPtr >= recogWords.length) break;
+      if (wordsMatch(tok, recogWords[recogPtr])) {
+        recogPtr++;
+        recogWrongStreak = 0;
+        setRevealCount(numInSurah, recogPtr);
+      } else {
+        recogWrongStreak++;
+        flashWrongWord(numInSurah, recogPtr);
+        if (recogWrongStreak === 3) {
+          const original = state.surah.ayahs.find(x => x.numberInSurah === numInSurah).text.split(' ')[recogPtr];
+          toast(t('micTryWord', original));
+        }
+      }
+    }
+    if (recogPtr >= recogWords.length) {
+      toast(t('micDone'));
+      stopListening();
+      return;
+    }
+  }
+}
+
+function handleRecogError(e, numInSurah) {
+  if (recogAyah !== numInSurah) return;
+  if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+    toast(t('micDenied'));
+    stopListening();
+  } else if (e.error === 'no-speech' || e.error === 'aborted') {
+    // benign — onend handles restarting the session
+  } else {
+    toast(t('micError'));
+    stopListening();
+  }
+}
+
+function flashWrongWord(numInSurah, idx) {
+  const ar = document.getElementById('ar-' + numInSurah);
+  if (!ar) return;
+  const el = ar.querySelectorAll('.w')[idx];
+  if (!el) return;
+  el.classList.remove('wrong');
+  void el.offsetWidth;   // restart the CSS animation if it's still fading out
+  el.classList.add('wrong');
+  setTimeout(() => el.classList.remove('wrong'), 900);
+}
+
+function updateMicBtn(numInSurah, listening) {
+  const btn = document.getElementById('mic-' + numInSurah);
+  if (!btn) return;
+  btn.classList.toggle('listening', listening);
+  const label = listening ? t('micListening') : t('listenPractice');
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('data-tip', label);
 }
 
 function toggleMem(key, numInSurah) {
