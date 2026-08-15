@@ -25,7 +25,7 @@
     --shadow: 0 1px 3px rgba(30, 41, 59, .06), 0 4px 16px rgba(30, 41, 59, .05);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; overflow-x: hidden; }
   body {
     font-family: 'Outfit', system-ui, sans-serif;
     background: var(--bg);
@@ -379,7 +379,7 @@
     padding: 9px 14px;
     margin-bottom: 14px;
   }
-  .mem-cont-row { display: flex; justify-content: center; margin-bottom: 14px; }
+  .mem-cont-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 
   .basmala {
     font-family: 'Amiri Quran', serif;
@@ -988,6 +988,7 @@ const LS = {
 };
 
 const TOTAL_AYAHS = 6236;
+const TOTAL_SURAHS = 114;
 let surahList = LS.get('hifz:surahlist', null);
 let memorized = LS.get('hifz:memorized', {});          // { "surah:ayah": true }
 let lastVisit = LS.get('hifz:last', null);             // { surah, name }
@@ -1046,6 +1047,8 @@ const I18N = {
     pageWord: n => `صفحة ${toDigits(n)}`,
     pagePos: (i, n) => `${toDigits(i)} / ${toDigits(n)}`,
     bookmarkHere: 'ضع علامة هنا',
+    prevSurah: 'السورة السابقة',
+    nextSurah: 'السورة التالية',
     toastBookmarked: 'تم حفظ موضعك 🔖',
     toastUnbookmarked: 'تم إلغاء العلامة',
     continueBookmark: (name, page) => `متابعة ${name} · صفحة ${toDigits(page)}`,
@@ -1113,6 +1116,8 @@ const I18N = {
     pageWord: n => `Page ${n}`,
     pagePos: (i, n) => `${i} / ${n}`,
     bookmarkHere: 'Bookmark this page',
+    prevSurah: 'Previous surah',
+    nextSurah: 'Next surah',
     toastBookmarked: 'Position saved 🔖',
     toastUnbookmarked: 'Bookmark removed',
     continueBookmark: (name, page) => `Continue ${name} · Page ${page}`,
@@ -1743,7 +1748,11 @@ function renderSurah() {
       </label>
     </div>
     ${mem ? `<div class="hint">${esc(t('memHint'))}</div>` : ''}
-    ${mem ? `<div class="mem-cont-row"><button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()" aria-label="${esc(continuousBtnTip())}" data-tip="${esc(continuousBtnTip())}">${continuousBtnInner()}</button></div>` : ''}
+    ${mem ? `<div class="mem-cont-row">
+      <button class="pg-nav" onclick="openSurah(${s.number - 1})" ${s.number <= 1 ? 'disabled' : ''} aria-label="${esc(t('prevSurah'))}" data-tip="${esc(t('prevSurah'))}">${lang === 'ar' ? '‹' : '›'}</button>
+      <button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()" aria-label="${esc(continuousBtnTip())}" data-tip="${esc(continuousBtnTip())}">${continuousBtnInner()}</button>
+      <button class="pg-nav" onclick="openSurah(${s.number + 1})" ${s.number >= TOTAL_SURAHS ? 'disabled' : ''} aria-label="${esc(t('nextSurah'))}" data-tip="${esc(t('nextSurah'))}">${lang === 'ar' ? '›' : '‹'}</button>
+    </div>` : ''}
     ${mem
       ? `${s.basmala ? `<div class="basmala">${esc(s.basmala)}</div>` : ''}
          <div class="ayah-list">${s.ayahs.map(a => ayahCardHTML(a)).join('')}</div>`
