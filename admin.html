@@ -74,10 +74,21 @@
     padding: 16px 18px; margin-bottom: 12px;
   }
   .fb-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .fb-head-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; min-width: 0; }
   .fb-email { font-weight: 600; font-size: .88rem; word-break: break-all; }
   .fb-date { color: var(--muted); font-size: .76rem; white-space: nowrap; }
   .fb-stars { color: var(--gold); font-size: .85rem; margin-bottom: 6px; }
   .fb-msg { font-size: .92rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+  .fb-delete {
+    background: none; border: 1.5px solid var(--border); color: var(--muted);
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .95rem; line-height: 1;
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .fb-delete:hover { background: #fdf0e9; border-color: var(--danger); color: var(--danger); }
+  .fb-delete:disabled { opacity: .5; cursor: default; }
+  .fb-card.removing { opacity: .4; pointer-events: none; }
 
   .empty, .loading, .err-box { text-align: center; color: var(--muted); padding: 60px 20px; }
   .err-box { color: var(--danger); }
@@ -158,16 +169,63 @@
       listEl.outerHTML = '<div class="empty">No feedback submitted yet.</div>';
       return;
     }
-    listEl.outerHTML = `<div class="count">${rows.length} submission${rows.length === 1 ? '' : 's'}</div>` +
+    listEl.outerHTML = `<div class="count" id="fb-count">${rows.length} submission${rows.length === 1 ? '' : 's'}</div>` +
       rows.map(r => `
-        <div class="fb-card">
+        <div class="fb-card" id="fb-card-${r.id}">
           <div class="fb-head">
-            <span class="fb-email">${esc(r.email)}</span>
-            <span class="fb-date">${esc(formatDate(r.created_at))}</span>
+            <div class="fb-head-main">
+              <span class="fb-email">${esc(r.email)}</span>
+              <span class="fb-date">${esc(formatDate(r.created_at))}</span>
+            </div>
+            <button class="fb-delete" onclick="deleteFeedback(${r.id})" aria-label="Delete" title="Delete">✕</button>
           </div>
           ${r.rating ? `<div class="fb-stars">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</div>` : ''}
           <div class="fb-msg">${esc(r.message)}</div>
         </div>`).join('');
+  }
+
+  async function deleteFeedback(id) {
+    if (!confirm('Delete this feedback? This can\'t be undone.')) return;
+    const key = sessionStorage.getItem(KEY_STORE);
+    const card = document.getElementById('fb-card-' + id);
+    const btn = card ? card.querySelector('.fb-delete') : null;
+    if (card) card.classList.add('removing');
+    if (btn) btn.disabled = true;
+
+    let res;
+    try {
+      res = await fetch(API + '/' + id, { method: 'DELETE', headers: { 'X-Admin-Key': key } });
+    } catch {
+      if (card) card.classList.remove('removing');
+      if (btn) btn.disabled = false;
+      alert('Network error — try again.');
+      return;
+    }
+
+    if (res.status === 401) {
+      sessionStorage.removeItem(KEY_STORE);
+      renderLogin('Incorrect admin key.');
+      return;
+    }
+    if (!res.ok) {
+      if (card) card.classList.remove('removing');
+      if (btn) btn.disabled = false;
+      alert('Could not delete that entry — try again.');
+      return;
+    }
+
+    if (card) card.remove();
+    const countEl = document.getElementById('fb-count');
+    const remaining = document.querySelectorAll('.fb-card').length;
+    if (countEl) countEl.textContent = `${remaining} submission${remaining === 1 ? '' : 's'}`;
+    if (!remaining) {
+      const wrap = document.getElementById('wrap');
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No feedback submitted yet.';
+      wrap.appendChild(empty);
+      if (countEl) countEl.remove();
+    }
   }
 
   function formatDate(s) {
