@@ -1749,9 +1749,9 @@ function renderSurah() {
     </div>
     ${mem ? `<div class="hint">${esc(t('memHint'))}</div>` : ''}
     ${mem ? `<div class="mem-cont-row">
-      <button class="pg-nav" onclick="openSurah(${s.number - 1})" ${s.number <= 1 ? 'disabled' : ''} aria-label="${esc(t('prevSurah'))}" data-tip="${esc(t('prevSurah'))}">${lang === 'ar' ? '›' : '‹'}</button>
+      <button class="pg-nav" onclick="openSurah(${s.number - 1})" ${s.number <= 1 ? 'disabled' : ''} aria-label="${esc(t('prevSurah'))}" data-tip="${esc(t('prevSurah'))}">‹</button>
       <button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()" aria-label="${esc(continuousBtnTip())}" data-tip="${esc(continuousBtnTip())}">${continuousBtnInner()}</button>
-      <button class="pg-nav" onclick="openSurah(${s.number + 1})" ${s.number >= TOTAL_SURAHS ? 'disabled' : ''} aria-label="${esc(t('nextSurah'))}" data-tip="${esc(t('nextSurah'))}">${lang === 'ar' ? '‹' : '›'}</button>
+      <button class="pg-nav" onclick="openSurah(${s.number + 1})" ${s.number >= TOTAL_SURAHS ? 'disabled' : ''} aria-label="${esc(t('nextSurah'))}" data-tip="${esc(t('nextSurah'))}">›</button>
     </div>` : ''}
     ${mem
       ? `${s.basmala ? `<div class="basmala">${esc(s.basmala)}</div>` : ''}
@@ -1788,8 +1788,10 @@ function readPageHTML(s) {
     const isMem = !!memorized[s.number + ':' + a.numberInSurah];
     return `<span class="m-ayah${isMem ? ' mem' : ''}" id="m-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah})">${esc(a.text)}<span class="ayah-marker" onclick="event.stopPropagation(); showTafsirPanel(${a.numberInSurah})" title="${esc(t('tafsirLabel'))}">${toDigits(a.numberInSurah)}</span></span>`;
   }).join(' ');
-  const prevArrow = lang === 'ar' ? '›' : '‹';
-  const nextArrow = lang === 'ar' ? '‹' : '›';
+  // Kept fixed regardless of language/RTL — left always means "back",
+  // right always means "forward", matching the physical mushaf page-flip.
+  const prevArrow = '‹';
+  const nextArrow = '›';
   const isBookmarkedPage = bookmark && bookmark.surah === s.number && bookmark.page === pg.page;
   const bookmarkedChip = isBookmarkedPage ? `<span class="pg-bookmarked">${esc(t('stoppedHere'))}</span>` : '';
   const tafsirOpenAyah = state.tafsirAyah != null && pg.ayahs.some(a => a.numberInSurah === state.tafsirAyah)
