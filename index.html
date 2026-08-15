@@ -2262,6 +2262,7 @@ let recogWords = [];         // normalized expected words for the current ayah
 let recogPtr = 0;            // index of the next expected word
 let recogWrongStreak = 0;    // consecutive mismatches on the current word
 let recogManualStop = false; // guards against auto-restart after an intentional stop
+let recogConsumed = {};      // per result-index: how many of its tokens we've already resolved
 
 function speechRecognitionCtor() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -2307,6 +2308,7 @@ function startListening(numInSurah) {
   recogPtr = 0;
   recogWrongStreak = 0;
   recogManualStop = false;
+  recogConsumed = {};
   setRevealCount(numInSurah, 0);
 
   recog = new SR();
@@ -2345,23 +2347,37 @@ function handleRecogResult(e, numInSurah) {
   if (recogAyah !== numInSurah) return;
   for (let i = e.resultIndex; i < e.results.length; i++) {
     const res = e.results[i];
-    if (!res.isFinal) continue;
     const tokens = (res[0].transcript || '').trim().split(/\s+/).filter(Boolean).map(w => normalizeArSearch(w));
-    for (const tok of tokens) {
-      if (recogPtr >= recogWords.length) break;
+    let consumed = recogConsumed[i] || 0;
+    // Interim results grow as the engine refines its guess for the SAME
+    // utterance, so only the tokens past what we've already resolved for
+    // this result index are new. A match advances immediately (this is
+    // what makes the reveal track live speech instead of only updating
+    // once every pause, when a "final" result finally arrives). A mismatch
+    // is only treated as a genuine wrong word once the result is final —
+    // an interim guess is still too unstable to judge, so we just wait for
+    // more audio (or the final) to resolve it instead of flashing "wrong"
+    // on a word that was only briefly misheard mid-recognition.
+    while (consumed < tokens.length && recogPtr < recogWords.length) {
+      const tok = tokens[consumed];
       if (wordsMatch(tok, recogWords[recogPtr])) {
         recogPtr++;
         recogWrongStreak = 0;
         setRevealCount(numInSurah, recogPtr);
-      } else {
+        consumed++;
+      } else if (res.isFinal) {
         recogWrongStreak++;
         flashWrongWord(numInSurah, recogPtr);
         if (recogWrongStreak === 3) {
           const original = state.surah.ayahs.find(x => x.numberInSurah === numInSurah).text.split(' ')[recogPtr];
           toast(t('micTryWord', original));
         }
+        consumed++;   // a final result won't change further — move past it, don't loop on it forever
+      } else {
+        break;        // still interim — give it a chance to refine before judging
       }
     }
+    recogConsumed[i] = consumed;
     if (recogPtr >= recogWords.length) {
       toast(t('micDone'));
       stopListening();
@@ -2390,8 +2406,14 @@ function flashWrongWord(numInSurah, idx) {
   if (!el) return;
   el.classList.remove('wrong');
   void el.offsetWidth;   // restart the CSS animation if it's still fading out
+  el.classList.remove('hid');   // briefly reveal it — a red flash under a 9px blur was invisible
   el.classList.add('wrong');
-  setTimeout(() => el.classList.remove('wrong'), 900);
+  setTimeout(() => {
+    el.classList.remove('wrong');
+    // Only re-hide if this word still hasn't been correctly said in the
+    // meantime (avoids re-blurring a word the user got right just after).
+    if ((state.revealed[numInSurah] || 0) <= idx) el.classList.add('hid');
+  }, 1100);
 }
 
 function updateMicBtn(numInSurah, listening) {
