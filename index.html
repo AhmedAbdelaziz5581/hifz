@@ -385,6 +385,16 @@
     margin-bottom: 14px;
   }
   .mem-cont-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+  .range-row {
+    display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+    gap: 8px; margin-bottom: 16px;
+    font-size: .82rem; color: var(--muted);
+  }
+  .range-select {
+    font-family: inherit; font-size: .82rem; font-weight: 600; color: var(--ink);
+    background: #fff; border: 1.5px solid var(--border); border-radius: 8px;
+    padding: 5px 8px; font-variant-numeric: tabular-nums;
+  }
 
   .basmala {
     font-family: 'Amiri Quran', serif;
@@ -1058,6 +1068,9 @@ let state = {
   tafsirAyah: null     // read mode: numberInSurah currently shown in the tafsir panel, or null
 };
 let continuousMode = false;   // read mode: auto-advance recitation across ayahs/pages
+let continuousFailStreak = 0; // consecutive audio-load/play failures during continuous playback
+let rangeFrom = null;         // memorize mode: repeat-range start ayah (null = full surah)
+let rangeTo = null;           // memorize mode: repeat-range end ayah (null = full surah)
 
 let lang = LS.get('hifz:lang', 'ar');   // 'ar' (default) | 'en'
 
@@ -1101,6 +1114,9 @@ const I18N = {
     bookmarkHere: 'ضع علامة هنا',
     prevSurah: 'السورة السابقة',
     nextSurah: 'السورة التالية',
+    repeatFromLabel: 'كرر من آية',
+    repeatToLabel: 'إلى',
+    toastContinuousStopped: 'توقفت التلاوة المتتابعة — تعذّر تحميل الصوت',
     toastBookmarked: 'تم حفظ موضعك 🔖',
     toastUnbookmarked: 'تم إلغاء العلامة',
     continueBookmark: (name, page) => `متابعة ${name} · صفحة ${toDigits(page)}`,
@@ -1177,6 +1193,9 @@ const I18N = {
     bookmarkHere: 'Bookmark this page',
     prevSurah: 'Previous surah',
     nextSurah: 'Next surah',
+    repeatFromLabel: 'Repeat ayah',
+    repeatToLabel: 'to',
+    toastContinuousStopped: 'Continuous recitation stopped — audio failed to load',
     toastBookmarked: 'Position saved 🔖',
     toastUnbookmarked: 'Bookmark removed',
     continueBookmark: (name, page) => `Continue ${name} · Page ${page}`,
@@ -1368,9 +1387,30 @@ async function playAyah(numInSurah, cont) {
   // Fetch this reciter's audio url + precise word timings (both cached together).
   const va = await loadVerseAudio(reciter, state.surah.number, numInSurah);
   if (audioState.key !== key) return;   // user tapped elsewhere while loading
-  if (va) { audioState.url = va.url; audioState.segStarts = va.starts; }
-  else { toast(t('toastAudioFail')); stopAudio(); return; }
+  if (va) { audioState.url = va.url; audioState.segStarts = va.starts; continuousFailStreak = 0; }
+  else { handlePlaybackFailure(numInSurah); return; }
   startPlayback();
+}
+
+// A single ayah's audio can fail to load (network hiccup on the verse-audio
+// API) or fail to play (CDN error on the file itself). Either used to leave
+// continuousMode dangling "on" with nothing playing and no way to ever
+// advance again, since stopAudio() never touches continuousMode — that's
+// the "continuous reciting gets stuck" bug. Now one bad ayah gets skipped
+// instead of killing the whole session, and only after repeated failures in
+// a row does it actually give up (turning the button off with a clear toast
+// instead of silently leaving the UI showing "still going").
+function handlePlaybackFailure(numInSurah) {
+  if (!continuousMode) { toast(t('toastAudioFail')); stopAudio(); return; }
+  continuousFailStreak++;
+  stopAudio();
+  if (continuousFailStreak >= 3) {
+    continuousMode = false;
+    updateContinuousBtn();
+    toast(t('toastContinuousStopped'));
+    return;
+  }
+  advanceContinuous(numInSurah);
 }
 
 function startPlayback() {
@@ -1380,7 +1420,7 @@ function startPlayback() {
   audio = new Audio(audioState.url);
   audio.playbackRate = speed;
   audio.play().catch(() => {});   // errors surface via onerror below
-  audio.onerror = () => { toast(t('toastAudioFail')); stopAudio(); };
+  audio.onerror = () => handlePlaybackFailure(numInSurah);
   wireAudioHandlers(numInSurah);
 }
 
@@ -1729,6 +1769,8 @@ async function openSurah(n) {
   state.readPageIdx = 0;
   state.tafsirAyah = null;
   continuousMode = false;
+  rangeFrom = null;
+  rangeTo = null;
   app.innerHTML = `<div class="loading" style="padding-top:120px"><div class="spinner"></div>${esc(t('loadingSurah'))}</div>`;
   try {
     state.surah = await loadSurah(n);
@@ -1761,6 +1803,23 @@ function maybeShowFeedbackFab() {
     const fabEl = document.getElementById('feedback-fab');
     if (fabEl) fabEl.hidden = false;
   }
+}
+
+// Memorize mode: "repeat ayah X to Y" range picker shown above the ayah list.
+// Two plain <select>s reusing the app's own ayah numbers — left at the full
+// surah span by default, which keeps continuous playback's existing
+// stop-at-the-end behavior (see hasCustomRange()) until the user narrows it.
+function rangeRowHTML(s) {
+  const from = rangeFrom || 1;
+  const to = rangeTo || s.ayahs.length;
+  const opts = sel => s.ayahs.map(a =>
+    `<option value="${a.numberInSurah}" ${a.numberInSurah === sel ? 'selected' : ''}>${toDigits(a.numberInSurah)}</option>`).join('');
+  return `<div class="range-row">
+    <span class="range-label">${esc(t('repeatFromLabel'))}</span>
+    <select id="range-from" class="range-select" onchange="setRangeFrom(this.value)">${opts(from)}</select>
+    <span class="range-label">${esc(t('repeatToLabel'))}</span>
+    <select id="range-to" class="range-select" onchange="setRangeTo(this.value)">${opts(to)}</select>
+  </div>`;
 }
 
 function renderSurah() {
@@ -1820,6 +1879,7 @@ function renderSurah() {
       <button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()" aria-label="${esc(continuousBtnTip())}" data-tip="${esc(continuousBtnTip())}">${continuousBtnInner()}</button>
       <button class="pg-nav" onclick="openSurah(${s.number + 1})" ${s.number >= TOTAL_SURAHS ? 'disabled' : ''} aria-label="${esc(t('nextSurah'))}" data-tip="${esc(t('nextSurah'))}">›</button>
     </div>` : ''}
+    ${mem ? rangeRowHTML(s) : ''}
     ${mem
       ? `${s.basmala ? `<div class="basmala">${esc(s.basmala)}</div>` : ''}
          <div class="ayah-list">${s.ayahs.map(a => ayahCardHTML(a)).join('')}</div>`
@@ -2065,13 +2125,33 @@ function toggleContinuous() {
   if (continuousMode) stopContinuous();
   else startContinuous();
 }
+// Memorize mode: repeat a specific ayah range instead of the whole surah.
+// null/null means "no custom range" — full default surah playback, unchanged.
+function hasCustomRange() {
+  if (!state.surah || rangeFrom == null || rangeTo == null) return false;
+  return rangeFrom > 1 || rangeTo < state.surah.ayahs.length;
+}
+function setRangeFrom(v) {
+  rangeFrom = +v;
+  if (rangeTo == null) rangeTo = state.surah.ayahs.length;
+  if (rangeFrom > rangeTo) { rangeTo = rangeFrom; const toEl = document.getElementById('range-to'); if (toEl) toEl.value = rangeTo; }
+}
+function setRangeTo(v) {
+  rangeTo = +v;
+  if (rangeFrom == null) rangeFrom = 1;
+  if (rangeTo < rangeFrom) { rangeFrom = rangeTo; const fromEl = document.getElementById('range-from'); if (fromEl) fromEl.value = rangeFrom; }
+}
+
 function startContinuous() {
   continuousMode = true;
+  continuousFailStreak = 0;
   updateContinuousBtn();
-  // Read mode starts from the current mushaf page; memorize mode has no
-  // pagination, so it just starts from the surah's first ayah.
-  const first = state.mode === 'read' ? state.readPages[state.readPageIdx].ayahs[0] : state.surah.ayahs[0];
-  playAyah(first.numberInSurah, true);
+  // Read mode starts from the current mushaf page; memorize mode starts
+  // from the custom repeat-range if one is set, else the surah's first ayah.
+  let startNum;
+  if (state.mode === 'read') startNum = state.readPages[state.readPageIdx].ayahs[0].numberInSurah;
+  else startNum = hasCustomRange() ? rangeFrom : state.surah.ayahs[0].numberInSurah;
+  playAyah(startNum, true);
 }
 function stopContinuous() {
   continuousMode = false;
@@ -2090,7 +2170,11 @@ function updateContinuousBtn() {
   });
 }
 function advanceContinuous(numInSurah) {
-  const next = state.surah.ayahs.find(x => x.numberInSurah === numInSurah + 1);
+  let nextNum = numInSurah + 1;
+  // Loop back to the start of the range instead of continuing past it —
+  // this is what makes "repeat ayah 3 to 5" actually keep repeating.
+  if (state.mode === 'memorize' && hasCustomRange() && nextNum > rangeTo) nextNum = rangeFrom;
+  const next = state.surah.ayahs.find(x => x.numberInSurah === nextNum);
   if (!next) { continuousMode = false; stopAudio(); updateContinuousBtn(); return; }
   if (state.mode === 'read') {
     // Flip to the next mushaf page if the next ayah isn't on the current one.
