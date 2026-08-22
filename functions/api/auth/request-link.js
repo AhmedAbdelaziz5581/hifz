@@ -39,17 +39,17 @@ export async function onRequestPost(context) {
     const origin = new URL(request.url).origin;
     const link = `${origin}/api/auth/verify?token=${token}`;
 
-    const sendResult = await sendMagicLinkEmail(env, email, link);
-    if (!sendResult.ok) return json({ error: 'email_failed', debug: sendResult.debug }, 502);   // TEMP debug field
+    const sent = await sendMagicLinkEmail(env, email, link);
+    if (!sent) return json({ error: 'email_failed' }, 502);
 
     return json({ ok: true });
   } catch (err) {
-    return json({ error: 'server_error', debug: String(err && err.message || err) }, 500);   // TEMP debug field
+    return json({ error: 'server_error' }, 500);
   }
 }
 
 async function sendMagicLinkEmail(env, to, link) {
-  if (!env.RESEND_API_KEY) return { ok: false, debug: 'no_api_key' };
+  if (!env.RESEND_API_KEY) return false;
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -66,12 +66,8 @@ async function sendMagicLinkEmail(env, to, link) {
                <p>If you didn't request this, you can safely ignore this email.</p>`
       })
     });
-    if (!res.ok) {
-      const bodyText = await res.text().catch(() => '');
-      return { ok: false, debug: `resend_status_${res.status}: ${bodyText.slice(0, 300)}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, debug: 'fetch_threw: ' + String(err && err.message || err) };
+    return res.ok;
+  } catch {
+    return false;
   }
 }
