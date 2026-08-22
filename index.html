@@ -1412,6 +1412,11 @@ async function playAyah(numInSurah, cont) {
 // a row does it actually give up (turning the button off with a clear toast
 // instead of silently leaving the UI showing "still going").
 function handlePlaybackFailure(numInSurah) {
+  // Several independent failure channels (play()-promise rejection, the
+  // element's error event, the stall watchdog) can all point at the same
+  // dead ayah — only act on the first one so we don't double-advance.
+  if (audioState.failureHandled) return;
+  audioState.failureHandled = true;
   if (!continuousMode) { toast(t('toastAudioFail')); stopAudio(); return; }
   continuousFailStreak++;
   stopAudio();
@@ -1430,7 +1435,11 @@ function startPlayback() {
   if (state.mode === 'memorize') setRevealCount(numInSurah, 0);
   audio = new Audio(audioState.url);
   audio.playbackRate = speed;
-  audio.play().catch(() => {});   // errors surface via onerror below
+  // A rejected play() promise (autoplay policy, decode issues, etc.) does
+  // NOT reliably fire the element's error event — it used to be swallowed
+  // here silently, which is one of the ways continuous playback could get
+  // permanently stuck with nothing playing and nothing to ever advance it.
+  audio.play().catch(() => handlePlaybackFailure(numInSurah));
   audio.onerror = () => handlePlaybackFailure(numInSurah);
   wireAudioHandlers(numInSurah);
 }
@@ -1456,8 +1465,24 @@ function wireAudioHandlers(numInSurah) {
   // Poll currentTime on a fast timer (~50ms / 20Hz) for tight word-reveal sync.
   // A timer fires regardless of tab visibility (unlike requestAnimationFrame).
   if (audioState.timer) clearInterval(audioState.timer);
+  // Stall watchdog, piggybacked on the same poll: if currentTime hasn't
+  // moved in STALL_MS, the audio is wedged — network stall, decoder stuck,
+  // or a play()-promise that never settled either way. None of onerror,
+  // onended, or a play()-rejection fire for this case, so without this it
+  // hangs forever with nothing playing and nothing to advance it. This is
+  // the backstop that makes "stuck" impossible regardless of root cause.
+  const STALL_MS = 10000;
+  let lastCurrentTime = -1;
+  let lastProgressAt = Date.now();
   audioState.timer = setInterval(() => {
-    if (!audio || audioState.numInSurah !== numInSurah) return;
+    if (!audio || audioState.numInSurah !== numInSurah || audio.ended) return;
+    if (audio.currentTime !== lastCurrentTime) {
+      lastCurrentTime = audio.currentTime;
+      lastProgressAt = Date.now();
+    } else if (Date.now() - lastProgressAt > STALL_MS) {
+      handlePlaybackFailure(numInSurah);
+      return;
+    }
     if (state.mode !== 'memorize') return;
     let count;
     if (audioState.segStarts) {
