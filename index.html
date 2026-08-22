@@ -173,6 +173,23 @@
   .continue-btn.bookmark-cta svg { width: 15px; height: 15px; color: #b98d3e; flex-shrink: 0; }
   .continue-btn:active { transform: scale(.96); }
 
+  .account-row { display: flex; justify-content: center; margin: 14px 0 4px; }
+  .account-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: 1.5px solid var(--border);
+    background: #fff;
+    color: var(--muted);
+    font-size: .8rem;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(30,41,59,.05);
+  }
+  .account-pill svg { width: 15px; height: 15px; flex-shrink: 0; }
+  .account-pill.synced { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+  .account-pill:active { transform: scale(.97); }
+  .account-desc { font-size: .88rem; color: var(--muted); line-height: 1.55; margin-bottom: 16px; text-align: center; }
+
   .search-wrap { position: sticky; top: 0; z-index: 5; padding: 8px 0 12px; background: var(--bg); }
   .search {
     width: 100%;
@@ -1041,6 +1058,16 @@
   </div>
 </div>
 
+<div class="feedback-overlay" id="account-overlay" hidden onclick="if(event.target===this) closeAccountModal()">
+  <div class="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="account-title">
+    <div class="feedback-head">
+      <h2 id="account-title"></h2>
+      <button class="feedback-x" onclick="closeAccountModal()" aria-label="Close">✕</button>
+    </div>
+    <div id="account-body"></div>
+  </div>
+</div>
+
 <script>
 'use strict';
 
@@ -1056,6 +1083,7 @@ let surahList = LS.get('hifz:surahlist', null);
 let memorized = LS.get('hifz:memorized', {});          // { "surah:ayah": true }
 let lastVisit = LS.get('hifz:last', null);             // { surah, name }
 let bookmark = LS.get('hifz:bookmark', null);           // { surah, surahAr, surahEn, page, ayah } — "stopped here" marker
+let authUser = null;   // { email } | null — signed-in account, for cross-device sync
 let state = {
   view: 'home',
   surah: null,        // loaded surah data { number, name, englishName, englishNameTranslation, ayahs:[{numberInSurah, number, text, translation}] , basmala }
@@ -1157,7 +1185,21 @@ const I18N = {
     micDenied: 'يرجى السماح باستخدام الميكروفون',
     micError: 'حدث خطأ أثناء الاستماع',
     micDone: 'أحسنت! تم التعرف على الآية كاملة ✓',
-    micTryWord: w => `حاول قول: ${w}`
+    micTryWord: w => `حاول قول: ${w}`,
+    syncCta: 'مزامنة بين الأجهزة',
+    syncedAs: email => `متصل كـ ${email}`,
+    accountTitle: 'الحساب والمزامنة',
+    accountDesc: 'سجّل الدخول بالبريد الإلكتروني لحفظ تقدمك (المحفوظ، العلامة المرجعية، الإعدادات) ومزامنته بين أجهزتك — بلا كلمة مرور.',
+    sendLink: 'إرسال رابط الدخول',
+    sending: 'جارٍ الإرسال…',
+    checkEmail: email => `تحقق من بريدك (${email}) واضغط على الرابط لتسجيل الدخول على هذا الجهاز.`,
+    accountSignedInAs: email => `أنت مسجّل الدخول كـ ${email}`,
+    signOut: 'تسجيل الخروج',
+    signedOut: 'تم تسجيل الخروج',
+    accountSendErr: 'تعذّر إرسال رابط الدخول. حاول مرة أخرى.',
+    accountLinkExpired: 'انتهت صلاحية الرابط أو تم استخدامه من قبل. اطلب رابطًا جديدًا.',
+    accountSignedInToast: email => `مرحبًا! تم تسجيل الدخول كـ ${email}`,
+    syncedToast: 'تمت مزامنة تقدمك ✓'
   },
   en: {
     appName: 'Hifz',
@@ -1238,7 +1280,21 @@ const I18N = {
     micDenied: 'Please allow microphone access',
     micError: 'Something went wrong while listening',
     micDone: 'Great! The full ayah was recognized ✓',
-    micTryWord: w => `Try saying: ${w}`
+    micTryWord: w => `Try saying: ${w}`,
+    syncCta: 'Sync across devices',
+    syncedAs: email => `Synced as ${email}`,
+    accountTitle: 'Account & Sync',
+    accountDesc: 'Sign in with your email to save your progress (memorized ayahs, bookmark, settings) and sync it across your devices — no password needed.',
+    sendLink: 'Send sign-in link',
+    sending: 'Sending…',
+    checkEmail: email => `Check your email (${email}) and tap the link to sign in on this device.`,
+    accountSignedInAs: email => `Signed in as ${email}`,
+    signOut: 'Sign out',
+    signedOut: 'Signed out',
+    accountSendErr: "Couldn't send the sign-in link. Please try again.",
+    accountLinkExpired: 'That link expired or was already used. Request a new one.',
+    accountSignedInToast: email => `Welcome! Signed in as ${email}`,
+    syncedToast: 'Your progress synced ✓'
   }
 };
 function t(key, ...args) {
@@ -1286,6 +1342,7 @@ function applyDir() {
 function toggleLang() {
   lang = lang === 'ar' ? 'en' : 'ar';
   LS.set('hifz:lang', lang);
+  scheduleSyncPush();
   applyDir();
   render();
   refreshFeedbackLabels();
@@ -1448,11 +1505,13 @@ function startPlayback() {
 function setSpeed(v) {
   speed = +v;
   LS.set('hifz:speed', speed);
+  scheduleSyncPush();
   if (audio) audio.playbackRate = speed;
 }
 function setReciter(id) {
   reciter = +id;
   LS.set('hifz:reciter', reciter);
+  scheduleSyncPush();
   const wasPlaying = audioState.key;
   if (wasPlaying) {
     const [, n] = wasPlaying.split(':');
@@ -1724,6 +1783,7 @@ function renderHome() {
         ${contBtn}
       </div>
     </div>
+    <div class="account-row" id="account-row"></div>
     <div class="search-wrap">
       <input class="search" id="search" placeholder="${esc(t('searchPh'))}" value="${esc(state.search)}">
     </div>
@@ -1735,6 +1795,7 @@ function renderHome() {
       <div class="loading"><div class="spinner"></div>${esc(t('loadingSurahs'))}</div>
     </div>`;
   app.innerHTML = html;
+  renderAccountRow();
 
   document.getElementById('search').addEventListener('input', e => {
     state.search = e.target.value;
@@ -1818,6 +1879,7 @@ async function openSurah(n) {
   }
   lastVisit = { surah: n, nameAr: state.surah.name, nameEn: state.surah.englishName };
   LS.set('hifz:last', lastVisit);
+  scheduleSyncPush();
   sessionStorage.setItem('hifz:visitedSurah', '1');
   renderSurah();
 }
@@ -2060,6 +2122,7 @@ function setBookmarkHere() {
   if (alreadyHere) {
     bookmark = null;
     LS.set('hifz:bookmark', null);
+    scheduleSyncPush();
     toast(t('toastUnbookmarked'));
   } else {
     bookmark = {
@@ -2070,6 +2133,7 @@ function setBookmarkHere() {
       ayah: pg.ayahs[0].numberInSurah
     };
     LS.set('hifz:bookmark', bookmark);
+    scheduleSyncPush();
     toast(t('toastBookmarked'));
   }
   refreshReadArea();
@@ -2122,6 +2186,7 @@ async function renderTafsirPanelBody(numInSurah) {
 function onTafsirSourceChange(val) {
   tafsirId = +val;
   LS.set('hifz:tafsirSrc', tafsirId);
+  scheduleSyncPush();
   if (state.tafsirAyah != null) renderTafsirPanelBody(state.tafsirAyah);
 }
 function hideTafsirPanel() {
@@ -2163,6 +2228,7 @@ async function renderTafsirBody(numInSurah) {
 function onTafsirSourceChangeCard(numInSurah, val) {
   tafsirId = +val;
   LS.set('hifz:tafsirSrc', tafsirId);
+  scheduleSyncPush();
   renderTafsirBody(numInSurah);
 }
 
@@ -2592,6 +2658,7 @@ function toggleMem(key, numInSurah) {
     toast(t('toastMarked'));
   }
   LS.set('hifz:memorized', memorized);
+  scheduleSyncPush();
   updateAyahCard(numInSurah);
 }
 
@@ -2633,6 +2700,143 @@ function refreshFeedbackLabels() {
   document.getElementById('feedback-submit').textContent = t('feedbackSubmit');
   document.getElementById('feedback-privacy').textContent = t('feedbackPrivacy');
 }
+/* ---------------- Account / cross-device sync ----------------
+   Magic-link sign-in (no passwords). While signed in, the same
+   progress/settings kept in localStorage are also pushed to the server
+   (debounced) after every change, and pulled down on sign-in so opening
+   the app on another device restores where you left off. */
+function collectSyncState() {
+  return { memorized, lastVisit, bookmark, lang, reciter, speed, tafsirSrc: tafsirId };
+}
+
+let syncPushTimer = null;
+function scheduleSyncPush() {
+  if (!authUser) return;
+  if (syncPushTimer) clearTimeout(syncPushTimer);
+  syncPushTimer = setTimeout(pushState, 1200);
+}
+async function pushState() {
+  if (!authUser) return;
+  try {
+    await fetch('/api/state', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectSyncState())
+    });
+  } catch {}
+}
+async function pullState() {
+  try {
+    const res = await fetch('/api/state');
+    if (!res.ok) return;
+    const d = await res.json();
+    if (!d.data) return;   // freshly signed-in account with nothing synced yet
+    const s = d.data;
+    if (s.memorized) { memorized = s.memorized; LS.set('hifz:memorized', memorized); }
+    if (s.lastVisit !== undefined) { lastVisit = s.lastVisit; LS.set('hifz:last', lastVisit); }
+    if (s.bookmark !== undefined) { bookmark = s.bookmark; LS.set('hifz:bookmark', bookmark); }
+    if (s.lang) { lang = s.lang; LS.set('hifz:lang', lang); applyDir(); }
+    if (s.reciter) { reciter = s.reciter; LS.set('hifz:reciter', reciter); }
+    if (s.speed) { speed = s.speed; LS.set('hifz:speed', speed); }
+    if (s.tafsirSrc) { tafsirId = s.tafsirSrc; LS.set('hifz:tafsirSrc', tafsirId); }
+    render();
+    toast(t('syncedToast'));
+  } catch {}
+}
+
+async function checkAuth(justVerifiedEmail) {
+  try {
+    const res = await fetch('/api/auth/me');
+    authUser = res.ok ? await res.json() : null;
+  } catch {
+    authUser = null;
+  }
+  renderAccountRow();
+  if (authUser) {
+    await pullState();
+    if (justVerifiedEmail) toast(t('accountSignedInToast', authUser.email));
+  }
+}
+
+function renderAccountRow() {
+  const el = document.getElementById('account-row');
+  if (!el) return;
+  el.innerHTML = authUser
+    ? `<button class="account-pill synced" onclick="openAccountModal()">${syncIconSVG()}<span>${esc(t('syncedAs', authUser.email))}</span></button>`
+    : `<button class="account-pill" onclick="openAccountModal()">${syncIconSVG()}<span>${esc(t('syncCta'))}</span></button>`;
+}
+
+function syncIconSVG() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`;
+}
+
+function openAccountModal() {
+  document.getElementById('account-title').textContent = t('accountTitle');
+  document.getElementById('account-overlay').hidden = false;
+  renderAccountModalBody();
+}
+function closeAccountModal() {
+  document.getElementById('account-overlay').hidden = true;
+}
+function renderAccountModalBody() {
+  const body = document.getElementById('account-body');
+  if (authUser) {
+    body.innerHTML = `
+      <p class="account-desc">${esc(t('accountSignedInAs', authUser.email))}</p>
+      <button class="feedback-submit" onclick="doSignOut()">${esc(t('signOut'))}</button>`;
+  } else {
+    body.innerHTML = `
+      <p class="account-desc">${esc(t('accountDesc'))}</p>
+      <label class="feedback-field">
+        <span>${esc(t('feedbackEmail'))}</span>
+        <input type="email" id="account-email" maxlength="200" autocomplete="email">
+      </label>
+      <button class="feedback-submit" id="account-send" onclick="requestMagicLink()">${esc(t('sendLink'))}</button>
+      <div class="feedback-status" id="account-status" hidden></div>`;
+    const emailEl = document.getElementById('account-email');
+    emailEl.addEventListener('keydown', e => { if (e.key === 'Enter') requestMagicLink(); });
+    emailEl.focus();
+  }
+}
+async function requestMagicLink() {
+  const emailEl = document.getElementById('account-email');
+  const email = emailEl.value.trim();
+  const statusEl = document.getElementById('account-status');
+  const btn = document.getElementById('account-send');
+  const showErr = msg => { statusEl.textContent = msg; statusEl.className = 'feedback-status err'; statusEl.hidden = false; };
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showErr(t('feedbackInvalidEmail')); return; }
+
+  btn.disabled = true;
+  btn.textContent = t('sending');
+  try {
+    const res = await fetch('/api/auth/request-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    if (res.ok) {
+      document.getElementById('account-body').innerHTML = `<p class="account-desc">${esc(t('checkEmail', email))}</p>`;
+    } else if (res.status === 429) {
+      showErr(t('feedbackRateLimited'));
+      btn.disabled = false; btn.textContent = t('sendLink');
+    } else {
+      showErr(t('accountSendErr'));
+      btn.disabled = false; btn.textContent = t('sendLink');
+    }
+  } catch {
+    showErr(t('accountSendErr'));
+    btn.disabled = false; btn.textContent = t('sendLink');
+  }
+}
+async function doSignOut() {
+  try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
+  authUser = null;
+  closeAccountModal();
+  renderAccountRow();
+  toast(t('signedOut'));
+}
+
 function openFeedback() {
   feedbackRating = 0;
   refreshFeedbackLabels();
@@ -2695,6 +2899,16 @@ applyDir();
 render();
 refreshFeedbackLabels();
 maybeShowFeedbackFab();
+
+// Coming back from the magic-link email: the server redirects to /?auth=...
+(function initAuth() {
+  const params = new URLSearchParams(location.search);
+  const authParam = params.get('auth');
+  if (authParam) history.replaceState(null, '', location.pathname);
+  if (authParam === 'expired') toast(t('accountLinkExpired'));
+  else if (authParam === 'invalid' || authParam === 'error') toast(t('accountSendErr'));
+  checkAuth(authParam === 'ok');
+})();
 </script>
 </body>
 </html>
