@@ -58,7 +58,7 @@ async function sendMagicLinkEmail(env, to, link) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: env.MAIL_FROM || 'Hifz <onboarding@resend.dev>',
+        from: env.MAIL_FROM || 'Hifz <noreply@hifz-quran.com>',
         to: [to],
         subject: 'Sign in to Hifz',
         html: `<p>Tap the link below to sign in to Hifz on this device. It expires in 15 minutes.</p>
