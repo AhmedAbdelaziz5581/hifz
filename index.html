@@ -190,6 +190,9 @@
   .account-pill:active { transform: scale(.97); }
   #account-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
   .account-desc { font-size: .88rem; color: var(--muted); line-height: 1.55; text-align: center; }
+  .about-link-row { display: flex; justify-content: center; margin-bottom: 4px; }
+  .about-link { font-size: .78rem; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; padding: 4px 8px; }
+  .about-link:hover { color: var(--primary); }
 
   .search-wrap { position: sticky; top: 0; z-index: 5; padding: 8px 0 12px; background: var(--bg); }
   .search {
@@ -323,6 +326,22 @@
   }
   .ayah-count { color: var(--primary); background: var(--primary-soft); }
   .juz-badge { color: #8a6d10; background: var(--gold-soft); }
+  .about-head-title { flex: 1; min-width: 0; text-align: center; font-weight: 700; font-size: 1.1rem; color: var(--primary); }
+
+  .about-wrap { padding: 4px 4px 40px; }
+  .about-lede { font-size: .95rem; line-height: 1.7; color: var(--ink); margin-bottom: 20px; }
+  .about-list { list-style: none; display: flex; flex-direction: column; gap: 14px; }
+  .about-list li {
+    position: relative;
+    padding-inline-start: 22px;
+    font-size: .9rem; line-height: 1.65; color: var(--muted);
+  }
+  .about-list li::before {
+    content: '✦';
+    position: absolute; inset-inline-start: 0; top: 1px;
+    color: var(--gold);
+    font-size: .8rem;
+  }
 
   .toolbar {
     display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
@@ -1200,7 +1219,18 @@ const I18N = {
     accountSendErr: 'تعذّر إرسال رابط الدخول. حاول مرة أخرى.',
     accountLinkExpired: 'انتهت صلاحية الرابط أو تم استخدامه من قبل. اطلب رابطًا جديدًا.',
     accountSignedInToast: email => `مرحبًا! تم تسجيل الدخول كـ ${email}`,
-    syncedToast: 'تمت مزامنة تقدمك ✓'
+    syncedToast: 'تمت مزامنة تقدمك ✓',
+    aboutLinkLabel: 'عن التطبيق',
+    aboutTitle: 'عن حِفْظ',
+    aboutLede: 'حِفْظ رفيقك المجاني لحفظ القرآن الكريم وقراءته، مصمم للممارسة اليومية على أي جهاز.',
+    aboutPoints: [
+      'وضع الحفظ يكشف كل آية كلمة كلمة أثناء الاستماع، لتختبر نفسك بدلاً من مجرد المتابعة بالقراءة.',
+      'التسميع الصوتي يستمع إلى تلاوتك ويكشف الكلمات كلما نطقتها بشكل صحيح — طريقة عملية لاختبار حفظك.',
+      'التلاوة المتتابعة تُشغّل السورة كاملة تلقائيًا (أو تكرر الآيات التي تتدرّب عليها فقط)، مع اختيارك للقارئ والسرعة وعدد مرات التكرار.',
+      'وضع القراءة يعرض القرآن بتصميم يشبه المصحف، مع تفسير متاح لأي آية.',
+      'تابع تقدمك في الحفظ، وضع علامة عند موضع توقفك، وأكمل من حيث توقفت — حتى على جهاز آخر إن سجّلت الدخول.',
+      'ثنائي اللغة بالكامل — بدّل بين العربية والإنجليزية في أي وقت.'
+    ]
   },
   en: {
     appName: 'Hifz',
@@ -1295,7 +1325,18 @@ const I18N = {
     accountSendErr: "Couldn't send the sign-in link. Please try again.",
     accountLinkExpired: 'That link expired or was already used. Request a new one.',
     accountSignedInToast: email => `Welcome! Signed in as ${email}`,
-    syncedToast: 'Your progress synced ✓'
+    syncedToast: 'Your progress synced ✓',
+    aboutLinkLabel: 'About',
+    aboutTitle: 'About Hifz',
+    aboutLede: 'Hifz is a free bilingual app that helps you memorize and read the Quran — word-by-word reveal, voice practice, and progress synced across your devices.',
+    aboutPoints: [
+      'Memorize mode reveals each ayah word by word as you listen, so you can test yourself instead of just reading along.',
+      'Voice practice listens to your recitation and reveals words as you say them correctly — a hands-free way to check yourself.',
+      'Continuous recitation plays through a surah (or repeats just the ayahs you’re working on) automatically, with your choice of reciter, speed, and repeat count.',
+      'Read mode shows the Quran in a clean mushaf-style layout with tafsir available for any ayah.',
+      'Track your memorized progress, bookmark where you stopped, and pick up right where you left off — even on a different device, if you sign in.',
+      'Fully bilingual — switch between Arabic and English anytime.'
+    ]
   }
 };
 function t(key, ...args) {
@@ -1729,6 +1770,7 @@ function tafsirSourceOptions() {
 function render() {
   stopAudio();
   if (state.view === 'home') renderHome();
+  else if (state.view === 'about') renderAbout();
   else renderSurah();
 }
 
@@ -1786,6 +1828,7 @@ function renderHome() {
       </div>
     </div>
     <div class="account-row" id="account-row"></div>
+    <div class="about-link-row"><button class="about-link" onclick="openAbout()">${esc(t('aboutLinkLabel'))}</button></div>
     <div class="search-wrap">
       <input class="search" id="search" placeholder="${esc(t('searchPh'))}" value="${esc(state.search)}">
     </div>
@@ -1890,9 +1933,31 @@ function goHome() {
   continuousMode = false;
   state.view = 'home';
   state.surah = null;
+  if (location.pathname !== '/') history.pushState(null, '', '/');
   render();
   window.scrollTo(0, 0);
   maybeShowFeedbackFab();
+}
+
+function openAbout() {
+  continuousMode = false;
+  state.view = 'about';
+  state.surah = null;
+  if (location.pathname !== '/about') history.pushState(null, '', '/about');
+  render();
+  window.scrollTo(0, 0);
+}
+
+function renderAbout() {
+  const backArrow = lang === 'ar' ? '→' : '←';
+  const backBtn = `<button class="back-btn" onclick="goHome()" aria-label="${esc(t('back'))}"><span class="arw">${backArrow}</span></button>`;
+  const points = t('aboutPoints').map(p => `<li>${esc(p)}</li>`).join('');
+  app.innerHTML = `
+    <div class="surah-head">${backBtn}<div class="about-head-title">${esc(t('aboutTitle'))}</div></div>
+    <div class="about-wrap">
+      <p class="about-lede">${esc(t('aboutLede'))}</p>
+      <ul class="about-list">${points}</ul>
+    </div>`;
 }
 
 // Feedback FAB stays out of the way until the user has actually finished
@@ -2897,6 +2962,7 @@ async function submitFeedback(event) {
 }
 
 /* ---------------- Init ---------------- */
+if (location.pathname === '/about') state.view = 'about';
 applyDir();
 render();
 refreshFeedbackLabels();
