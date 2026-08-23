@@ -92,25 +92,58 @@
 
   .empty, .loading, .err-box { text-align: center; color: var(--muted); padding: 60px 20px; }
   .err-box { color: var(--danger); }
+
+  /* ---------- Tabs ---------- */
+  .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+  .tab-btn {
+    background: var(--card); border: 1.5px solid var(--border); color: var(--muted);
+    padding: 8px 16px; border-radius: 999px; font-size: .85rem; font-weight: 600;
+  }
+  .tab-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+  /* ---------- Users & sessions ---------- */
+  .user-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 16px 18px; margin-bottom: 12px;
+  }
+  .user-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .user-email { font-weight: 600; font-size: .92rem; word-break: break-all; }
+  .user-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill { font-size: .7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill-synced { background: var(--primary-soft); color: var(--primary); }
+  .pill-nosync { background: #f1f1ee; color: var(--muted); }
+  .pill-active { background: #eaf7ee; color: #1a7a3d; }
+  .user-meta { font-size: .78rem; color: var(--muted); margin-bottom: 10px; }
+  .session-list { display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--border); padding-top: 10px; }
+  .session-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .78rem; }
+  .session-row.empty-row { color: var(--muted); }
+  .session-badge { font-size: .66rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+  .badge-active { background: #eaf7ee; color: #1a7a3d; }
+  .badge-expired { background: #f1f1ee; color: var(--muted); }
+  .session-token { font-family: monospace; color: var(--ink); background: #f6f4ee; padding: 2px 6px; border-radius: 6px; }
+  .session-dates { color: var(--muted); }
 </style>
 </head>
 <body>
 <div class="wrap" id="wrap"></div>
 
 <script>
-  const API = '/api/admin/feedback';
+  const FEEDBACK_API = '/api/admin/feedback';
+  const USERS_API = '/api/admin/users';
   const KEY_STORE = 'hifz:adminKey';
+  let activeTab = 'feedback';
 
   function render() {
     const key = sessionStorage.getItem(KEY_STORE);
     if (!key) return renderLogin();
-    renderDashboard(key);
+    renderShell(key);
   }
 
   function renderLogin(err) {
     document.getElementById('wrap').innerHTML = `
       <div class="login-box">
-        <h1>Feedback Admin</h1>
+        <h1>Admin</h1>
         <input type="password" id="pw" placeholder="Admin key" autofocus>
         <button onclick="submitLogin()">Sign in</button>
         <div class="login-err">${err ? esc(err) : ''}</div>
@@ -122,7 +155,7 @@
     const pw = document.getElementById('pw').value.trim();
     if (!pw) return;
     sessionStorage.setItem(KEY_STORE, pw);
-    await renderDashboard(pw, true);
+    renderShell(pw);
   }
 
   function logout() {
@@ -130,23 +163,42 @@
     render();
   }
 
-  async function renderDashboard(key, isFreshLogin) {
+  function switchTab(tab) {
+    activeTab = tab;
+    renderShell(sessionStorage.getItem(KEY_STORE));
+  }
+
+  function renderShell(key) {
+    const titles = { feedback: 'Feedback', users: 'Users & Sessions' };
+    const subs = {
+      feedback: 'Submissions from the Hifz feedback form',
+      users: 'Accounts that have signed in via magic link, and their sessions'
+    };
     document.getElementById('wrap').innerHTML = `
       <div class="toolbar">
         <div>
-          <h1>Feedback</h1>
-          <div class="sub">Submissions from the Hifz feedback form</div>
+          <h1>${titles[activeTab]}</h1>
+          <div class="sub">${subs[activeTab]}</div>
         </div>
         <div style="display:flex; gap:8px;">
-          <button class="refresh-btn" onclick="renderDashboard(sessionStorage.getItem('${KEY_STORE}'))">Refresh</button>
+          <button class="refresh-btn" onclick="renderShell(sessionStorage.getItem('${KEY_STORE}'))">Refresh</button>
           <button class="logout-btn" onclick="logout()">Sign out</button>
         </div>
       </div>
+      <div class="tabs">
+        <button class="tab-btn ${activeTab === 'feedback' ? 'active' : ''}" onclick="switchTab('feedback')">Feedback</button>
+        <button class="tab-btn ${activeTab === 'users' ? 'active' : ''}" onclick="switchTab('users')">Users &amp; Sessions</button>
+      </div>
       <div class="loading" id="list">Loading…</div>`;
 
+    if (activeTab === 'feedback') loadFeedback(key);
+    else loadUsers(key);
+  }
+
+  async function loadFeedback(key) {
     let res;
     try {
-      res = await fetch(API, { headers: { 'X-Admin-Key': key } });
+      res = await fetch(FEEDBACK_API, { headers: { 'X-Admin-Key': key } });
     } catch {
       document.getElementById('list').outerHTML = '<div class="err-box">Network error — try refreshing.</div>';
       return;
@@ -194,7 +246,7 @@
 
     let res;
     try {
-      res = await fetch(API + '/' + id, { method: 'DELETE', headers: { 'X-Admin-Key': key } });
+      res = await fetch(FEEDBACK_API + '/' + id, { method: 'DELETE', headers: { 'X-Admin-Key': key } });
     } catch {
       if (card) card.classList.remove('removing');
       if (btn) btn.disabled = false;
@@ -228,7 +280,72 @@
     }
   }
 
+  async function loadUsers(key) {
+    let res;
+    try {
+      res = await fetch(USERS_API, { headers: { 'X-Admin-Key': key } });
+    } catch {
+      document.getElementById('list').outerHTML = '<div class="err-box">Network error — try refreshing.</div>';
+      return;
+    }
+
+    if (res.status === 401) {
+      sessionStorage.removeItem(KEY_STORE);
+      renderLogin('Incorrect admin key.');
+      return;
+    }
+    if (!res.ok) {
+      document.getElementById('list').outerHTML = '<div class="err-box">Something went wrong loading users.</div>';
+      return;
+    }
+
+    const data = await res.json();
+    const users = data.users || [];
+    const listEl = document.getElementById('list');
+    if (!users.length) {
+      listEl.outerHTML = '<div class="empty">No one has signed in yet.</div>';
+      return;
+    }
+    listEl.outerHTML = `<div class="count">${users.length} account${users.length === 1 ? '' : 's'}</div>` +
+      users.map(userCardHTML).join('');
+  }
+
+  function userCardHTML(u) {
+    const sessionsHTML = u.sessions.length
+      ? u.sessions.map(s => `
+        <div class="session-row">
+          <span class="session-badge ${s.active ? 'badge-active' : 'badge-expired'}">${s.active ? 'Active' : 'Expired'}</span>
+          <span class="session-token">${esc(s.tokenPrefix)}</span>
+          <span class="session-dates">Signed in ${esc(formatDate(s.created_at))} · expires ${esc(formatDate(s.expires_at))}</span>
+        </div>`).join('')
+      : '<div class="session-row empty-row">No sessions</div>';
+
+    const syncedMeta = u.synced
+      ? ` · synced ${esc(formatDate(u.state_updated_at))} (${formatBytes(u.state_size_bytes)})`
+      : '';
+
+    return `
+      <div class="user-card">
+        <div class="user-head">
+          <span class="user-email">${esc(u.email)}</span>
+          <span class="user-badges">
+            ${u.synced ? '<span class="pill pill-synced">Synced</span>' : '<span class="pill pill-nosync">Not synced</span>'}
+            ${u.active_session_count > 0 ? `<span class="pill pill-active">${u.active_session_count} active session${u.active_session_count === 1 ? '' : 's'}</span>` : ''}
+          </span>
+        </div>
+        <div class="user-meta">Joined ${esc(formatDate(u.created_at))} · ${u.session_count} session${u.session_count === 1 ? '' : 's'} total${syncedMeta}</div>
+        <div class="session-list">${sessionsHTML}</div>
+      </div>`;
+  }
+
+  function formatBytes(n) {
+    if (!n) return '0 B';
+    if (n < 1024) return n + ' B';
+    return (n / 1024).toFixed(1) + ' KB';
+  }
+
   function formatDate(s) {
+    if (!s) return '—';
     try {
       return new Date(s.replace(' ', 'T') + 'Z').toLocaleString();
     } catch { return s; }

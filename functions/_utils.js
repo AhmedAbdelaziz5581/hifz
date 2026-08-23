@@ -41,6 +41,16 @@ export function clearSessionCookieHeader() {
 // Looks up the signed-in user from the session cookie, or null if there is
 // none / it's expired. SQLite datetime('now') is UTC without a zone suffix,
 // so we append 'Z' before parsing to compare correctly against Date.now().
+export function timingSafeEqual(a, b) {
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  if (aBytes.length !== bBytes.length) return false;
+  let diff = 0;
+  for (let i = 0; i < aBytes.length; i++) diff |= aBytes[i] ^ bBytes[i];
+  return diff === 0;
+}
+
 export async function getSessionUser(request, env) {
   const cookies = parseCookies(request);
   const token = cookies[SESSION_COOKIE];
