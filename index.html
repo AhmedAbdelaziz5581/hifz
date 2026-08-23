@@ -1437,11 +1437,12 @@ async function playAyah(numInSurah, cont) {
   const key = state.surah.number + ':' + numInSurah;
   if (audioState.key === key) { stopContinuous(); return; }
   stopAudio();
-  // In a custom-range continuous session the Repeat count applies to the
-  // whole range (see rangePassesLeft), not to each ayah individually —
-  // otherwise every ayah would ALSO repeat N times on top of the range
-  // itself looping, compounding into "repeats forever" with no clean stop.
-  const inRangeSession = continuousMode && state.mode === 'memorize' && hasCustomRange();
+  // In a memorize continuous session the Repeat count applies to the whole
+  // range (custom, or the whole surah by default — see rangePassesLeft),
+  // not to each ayah individually — otherwise every ayah would ALSO
+  // repeat N times on top of the range itself looping, compounding into
+  // "repeats forever" with no clean stop.
+  const inRangeSession = continuousMode && state.mode === 'memorize';
   audioState = {
     key, left: inRangeSession ? 1 : state.repeat, numInSurah,
     starts: wordStartFractions(numInSurah),
@@ -1906,8 +1907,9 @@ function maybeShowFeedbackFab() {
 
 // Memorize mode: "repeat ayah X to Y" range picker shown above the ayah list.
 // Two plain <select>s reusing the app's own ayah numbers — left at the full
-// surah span by default, which keeps continuous playback's existing
-// stop-at-the-end behavior (see hasCustomRange()) until the user narrows it.
+// surah span by default. The Repeat count above always applies to this
+// whole range (custom, or the whole surah by default) as a unit, not to
+// each ayah — see rangePassesLeft in advanceContinuous().
 function rangeRowHTML(s) {
   const from = rangeFrom || 1;
   const to = rangeTo || s.ayahs.length;
@@ -1920,7 +1922,7 @@ function rangeRowHTML(s) {
       <span class="range-label">${esc(t('repeatToLabel'))}</span>
       <select id="range-to" class="range-select" onchange="setRangeTo(this.value)">${opts(to)}</select>
     </div>
-    ${hasCustomRange() ? `<div class="range-hint">${esc(t('rangeRepeatHint'))}</div>` : ''}
+    <div class="range-hint">${esc(t('rangeRepeatHint'))}</div>
   </div>`;
 }
 // Re-render just the range picker (not the whole page) after a change, so the
@@ -2238,12 +2240,6 @@ function toggleContinuous() {
   if (continuousMode) stopContinuous();
   else startContinuous();
 }
-// Memorize mode: repeat a specific ayah range instead of the whole surah.
-// null/null means "no custom range" — full default surah playback, unchanged.
-function hasCustomRange() {
-  if (!state.surah || rangeFrom == null || rangeTo == null) return false;
-  return rangeFrom > 1 || rangeTo < state.surah.ayahs.length;
-}
 function setRangeFrom(v) {
   rangeFrom = +v;
   if (rangeTo == null) rangeTo = state.surah.ayahs.length;
@@ -2261,16 +2257,17 @@ function startContinuous() {
   continuousMode = true;
   continuousFailStreak = 0;
   updateContinuousBtn();
-  // Read mode starts from the current mushaf page; memorize mode starts
-  // from the custom repeat-range if one is set, else the surah's first ayah.
+  // Read mode starts from the current mushaf page. Memorize mode always
+  // repeats a range now — the custom one if set, otherwise the whole surah
+  // (ayah 1 to the last ayah) — repeated by the Repeat count either way,
+  // so leaving the range at its default no longer falls back to the old
+  // "repeat each ayah individually, play through once" behavior.
   let startNum;
   if (state.mode === 'read') {
     startNum = state.readPages[state.readPageIdx].ayahs[0].numberInSurah;
-  } else if (hasCustomRange()) {
-    startNum = rangeFrom;
-    rangePassesLeft = state.repeat;   // repeat the RANGE this many times, then stop — not forever
   } else {
-    startNum = state.surah.ayahs[0].numberInSurah;
+    startNum = rangeFrom || 1;
+    rangePassesLeft = state.repeat;   // repeat the whole range this many times, then stop — not forever
   }
   playAyah(startNum, true);
 }
@@ -2293,20 +2290,24 @@ function updateContinuousBtn() {
 function advanceContinuous(numInSurah) {
   let nextNum = numInSurah + 1;
   // Loop back to the start of the range instead of continuing past it —
-  // this is what makes "repeat ayah 3 to 5" actually keep repeating. Each
-  // wrap counts as one full pass through the range; once rangePassesLeft
-  // (set from the Repeat count) runs out, stop cleanly instead of looping
-  // forever with no way to tell it's still "on".
-  if (state.mode === 'memorize' && hasCustomRange() && nextNum > rangeTo) {
-    rangePassesLeft--;
-    if (rangePassesLeft <= 0) {
-      continuousMode = false;
-      stopAudio();
-      updateContinuousBtn();
-      toast(t('toastRangeDone'));
-      return;
+  // this is what makes "repeat ayah 3 to 5" (or, with no custom range,
+  // the whole surah) actually keep repeating. Each wrap counts as one
+  // full pass through the range; once rangePassesLeft (set from the
+  // Repeat count) runs out, stop cleanly instead of looping forever with
+  // no way to tell it's still "on".
+  if (state.mode === 'memorize') {
+    const rangeEnd = rangeTo || state.surah.ayahs.length;
+    if (nextNum > rangeEnd) {
+      rangePassesLeft--;
+      if (rangePassesLeft <= 0) {
+        continuousMode = false;
+        stopAudio();
+        updateContinuousBtn();
+        toast(t('toastRangeDone'));
+        return;
+      }
+      nextNum = rangeFrom || 1;
     }
-    nextNum = rangeFrom;
   }
   const next = state.surah.ayahs.find(x => x.numberInSurah === nextNum);
   if (!next) { continuousMode = false; stopAudio(); updateContinuousBtn(); return; }
