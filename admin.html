@@ -133,6 +133,11 @@
   const USERS_API = '/api/admin/users';
   const KEY_STORE = 'hifz:adminKey';
   let activeTab = 'feedback';
+  // Bumped on every renderShell() call so a fetch left over from a
+  // superseded tab-switch (or a double "Refresh" click) can tell it's
+  // stale and skip writing into a #list that's already been replaced,
+  // instead of throwing on a null element.
+  let renderGen = 0;
 
   function render() {
     const key = sessionStorage.getItem(KEY_STORE);
@@ -191,18 +196,21 @@
       </div>
       <div class="loading" id="list">Loading…</div>`;
 
-    if (activeTab === 'feedback') loadFeedback(key);
-    else loadUsers(key);
+    const gen = ++renderGen;
+    if (activeTab === 'feedback') loadFeedback(key, gen);
+    else loadUsers(key, gen);
   }
 
-  async function loadFeedback(key) {
+  async function loadFeedback(key, gen) {
     let res;
     try {
       res = await fetch(FEEDBACK_API, { headers: { 'X-Admin-Key': key } });
     } catch {
+      if (gen !== renderGen) return;
       document.getElementById('list').outerHTML = '<div class="err-box">Network error — try refreshing.</div>';
       return;
     }
+    if (gen !== renderGen) return;   // a later tab-switch/refresh has already superseded this load
 
     if (res.status === 401) {
       sessionStorage.removeItem(KEY_STORE);
@@ -215,6 +223,7 @@
     }
 
     const data = await res.json();
+    if (gen !== renderGen) return;
     const rows = data.feedback || [];
     const listEl = document.getElementById('list');
     if (!rows.length) {
@@ -280,14 +289,16 @@
     }
   }
 
-  async function loadUsers(key) {
+  async function loadUsers(key, gen) {
     let res;
     try {
       res = await fetch(USERS_API, { headers: { 'X-Admin-Key': key } });
     } catch {
+      if (gen !== renderGen) return;
       document.getElementById('list').outerHTML = '<div class="err-box">Network error — try refreshing.</div>';
       return;
     }
+    if (gen !== renderGen) return;   // a later tab-switch/refresh has already superseded this load
 
     if (res.status === 401) {
       sessionStorage.removeItem(KEY_STORE);
@@ -300,6 +311,7 @@
     }
 
     const data = await res.json();
+    if (gen !== renderGen) return;
     const users = data.users || [];
     const listEl = document.getElementById('list');
     if (!users.length) {
