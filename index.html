@@ -1200,7 +1200,7 @@ const I18N = {
     feedbackRating: 'قيّم تجربتك (اختياري)',
     feedbackStarN: n => `${toDigits(n)} نجوم`,
     listenPractice: 'تسميع صوتي',
-    micListening: 'جارٍ الاستماع… رددها بصوت واضح',
+    micListening: 'جارٍ الاستماع… تحدث بوضوح في مكان هادئ',
     micUnsupported: 'المتصفح لا يدعم التعرف على الصوت',
     micDenied: 'يرجى السماح باستخدام الميكروفون',
     micError: 'حدث خطأ أثناء الاستماع',
@@ -1306,7 +1306,7 @@ const I18N = {
     feedbackRating: 'Rate your experience (optional)',
     feedbackStarN: n => `${n} star${n === 1 ? '' : 's'}`,
     listenPractice: 'Voice recitation practice',
-    micListening: 'Listening… recite clearly',
+    micListening: 'Listening… speak clearly in a quiet place',
     micUnsupported: "This browser doesn't support voice recognition",
     micDenied: 'Please allow microphone access',
     micError: 'Something went wrong while listening',
@@ -2580,7 +2580,7 @@ function levenshtein(a, b) {
 function wordsMatch(spoken, expected) {
   if (!spoken || !expected) return false;
   if (spoken === expected) return true;
-  return levenshtein(spoken, expected) <= Math.max(1, Math.floor(expected.length * 0.3));
+  return levenshtein(spoken, expected) <= Math.max(2, Math.ceil(expected.length * 0.4));
 }
 
 function toggleListen(numInSurah) {
@@ -2608,7 +2608,12 @@ function startListening(numInSurah) {
   recog.lang = 'ar-SA';
   recog.continuous = true;
   recog.interimResults = true;
-  recog.maxAlternatives = 1;
+  // Chrome's ar-SA model is tuned for everyday conversational Arabic, not
+  // Quranic recitation — its top guess is often wrong even when the
+  // correct word shows up further down its own alternatives list. Asking
+  // for more candidates and checking all of them (see handleRecogResult)
+  // catches those without needing a different recognition engine.
+  recog.maxAlternatives = 5;
   recog.onresult = e => handleRecogResult(e, numInSurah);
   recog.onerror = e => handleRecogError(e, numInSurah);
   recog.onend = () => {
@@ -2620,6 +2625,7 @@ function startListening(numInSurah) {
   };
 
   updateMicBtn(numInSurah, true);
+  toast(t('micListening'));
   try { recog.start(); } catch { toast(t('micDenied')); stopListening(); }
 }
 
@@ -2640,7 +2646,16 @@ function handleRecogResult(e, numInSurah) {
   if (recogAyah !== numInSurah) return;
   for (let i = e.resultIndex; i < e.results.length; i++) {
     const res = e.results[i];
-    const tokens = (res[0].transcript || '').trim().split(/\s+/).filter(Boolean).map(w => normalizeArSearch(w));
+    // One token array per recognition alternative (top guess first). The
+    // top guess drives how far we've "consumed" this result, but a match
+    // on ANY alternative counts — Chrome's ar-SA model frequently mishears
+    // the top guess for Quranic words that a lower-ranked alternative
+    // still got right.
+    const altTokenLists = [];
+    for (let a = 0; a < res.length; a++) {
+      altTokenLists.push((res[a].transcript || '').trim().split(/\s+/).filter(Boolean).map(w => normalizeArSearch(w)));
+    }
+    const tokens = altTokenLists[0];
     let consumed = recogConsumed[i] || 0;
     // Interim results grow as the engine refines its guess for the SAME
     // utterance, so only the tokens past what we've already resolved for
@@ -2652,8 +2667,8 @@ function handleRecogResult(e, numInSurah) {
     // more audio (or the final) to resolve it instead of flashing "wrong"
     // on a word that was only briefly misheard mid-recognition.
     while (consumed < tokens.length && recogPtr < recogWords.length) {
-      const tok = tokens[consumed];
-      if (wordsMatch(tok, recogWords[recogPtr])) {
+      const matched = altTokenLists.some(list => wordsMatch(list[consumed], recogWords[recogPtr]));
+      if (matched) {
         recogPtr++;
         recogWrongStreak = 0;
         setRevealCount(numInSurah, recogPtr);
