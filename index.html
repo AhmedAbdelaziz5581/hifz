@@ -1357,7 +1357,10 @@ function fromArDigits(s) {
 // Remove Arabic diacritics (harakat) and normalize alef-wasla — makes short
 // names clear and readable at small sizes.
 function stripHarakat(s) {
-  return s.replace(/[\u0610-\u061A\u064B-\u0652\u0653-\u065F\u0670\u0640\u06D6-\u06ED]/g, '').replace(/\u0671/g, '\u0627');
+  // Also strips bidi control characters (LRM/RLM/ALM) some platforms'
+  // speech-to-text engines inject into Arabic transcripts, which would
+  // otherwise silently break exact/fuzzy word comparisons.
+  return s.replace(/[\u0610-\u061A\u064B-\u0652\u0653-\u065F\u0670\u0640\u06D6-\u06ED\u200E\u200F\u061C]/g, '').replace(/\u0671/g, '\u0627');
 }
 // Normalize Arabic text for search matching: strips harakat, then folds letter
 // variants that different keyboards (Persian/Urdu layouts, iOS autocorrect,
