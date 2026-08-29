@@ -734,6 +734,11 @@
     box-shadow: 0 3px 10px -2px rgba(192,57,43,.55);
     animation: micPulse 1.4s ease-in-out infinite;
   }
+  .mic-cont-btn.on {
+    background: #c0392b; border-color: #c0392b;
+    box-shadow: 0 3px 10px -2px rgba(192,57,43,.55);
+    animation: micPulse 1.4s ease-in-out infinite;
+  }
   @keyframes micPulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(192,57,43,.45), 0 3px 10px -2px rgba(192,57,43,.55); }
     50% { box-shadow: 0 0 0 8px rgba(192,57,43,0), 0 3px 10px -2px rgba(192,57,43,.55); }
@@ -746,6 +751,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .mic-btn.listening { animation: none; }
+    .mic-cont-btn.on { animation: none; }
     .ayah-ar .w.wrong { animation: none; }
   }
   .mem-btn {
@@ -1209,6 +1215,9 @@ const I18N = {
     micError: 'حدث خطأ أثناء الاستماع',
     micDone: 'أحسنت! تم التعرف على الآية كاملة ✓',
     micTryWord: w => `حاول قول: ${w}`,
+    listenRange: 'تسميع النطاق',
+    stopListenRange: 'إيقاف التسميع',
+    micSurahDone: n => `أحسنت! أتممت تسميع ${toDigits(n)} ${n === 1 ? 'آية' : 'آيات'} ✓`,
     syncCta: 'مزامنة بين الأجهزة',
     syncedAs: email => `متصل كـ ${email}`,
     accountTitle: 'الحساب والمزامنة',
@@ -1315,6 +1324,9 @@ const I18N = {
     micError: 'Something went wrong while listening',
     micDone: 'Great! The full ayah was recognized ✓',
     micTryWord: w => `Try saying: ${w}`,
+    listenRange: 'Voice practice range',
+    stopListenRange: 'Stop practice',
+    micSurahDone: n => `Great! Recited ${n} ${n === 1 ? 'ayah' : 'ayahs'} ✓`,
     syncCta: 'Sync across devices',
     syncedAs: email => `Synced as ${email}`,
     accountTitle: 'Account & Sync',
@@ -1463,7 +1475,12 @@ function stopAudio() {
   audioState.key = null;
   document.querySelectorAll('.ayah-card.playing, .m-ayah.playing').forEach(el => el.classList.remove('playing'));
   document.querySelectorAll('.icon-btn.playing').forEach(el => { el.classList.remove('playing'); el.innerHTML = playIconSVG(); });
-  stopListening();   // audio playback and voice practice are mutually exclusive
+  // Audio playback and voice practice are mutually exclusive, but this must
+  // not cancel an in-progress continuous voice session — startListening()
+  // itself calls stopAudio() on every ayah transition, so doing a full stop
+  // here would kill the session after its very first ayah. See
+  // stopRecogInstance()'s comment for the fuller explanation.
+  stopRecogInstance(false);
 }
 
 // Start-of-word fractions weighted by word length — fallback pacing used only
@@ -2060,6 +2077,9 @@ function renderSurah() {
       <button class="pg-nav" onclick="openSurah(${s.number - 1})" ${s.number <= 1 ? 'disabled' : ''} aria-label="${esc(t('prevSurah'))}" data-tip="${esc(t('prevSurah'))}">‹</button>
       <button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()" aria-label="${esc(continuousBtnTip())}" data-tip="${esc(continuousBtnTip())}">${continuousBtnInner()}</button>
       <button class="pg-nav" onclick="openSurah(${s.number + 1})" ${s.number >= TOTAL_SURAHS ? 'disabled' : ''} aria-label="${esc(t('nextSurah'))}" data-tip="${esc(t('nextSurah'))}">›</button>
+    </div>
+    <div class="mem-cont-row">
+      <button class="cont-btn mic-cont-btn ${micContinuousMode ? 'on' : ''}" id="mic-cont-btn" onclick="toggleListenSurah()" aria-label="${esc(micContBtnTip())}" data-tip="${esc(micContBtnTip())}">${micContBtnInner()}</button>
     </div>` : ''}
     ${mem ? rangeRowHTML(s) : ''}
     ${mem
@@ -2153,6 +2173,21 @@ function continuousBtnTip() {
   // Same label as the button's own text, so the tooltip stays useful once
   // the label is hidden (icon-only cont-btn on narrow screens).
   return continuousMode ? t('stopPlay') : t('continuousPlay');
+}
+function micContBtnInner() {
+  return `<span class="cont-icon">${micIconSVG()}</span><span>${esc(micContinuousMode ? t('stopListenRange') : t('listenRange'))}</span>`;
+}
+function micContBtnTip() {
+  return micContinuousMode ? t('stopListenRange') : t('listenRange');
+}
+function updateMicContBtn() {
+  const b = document.getElementById('mic-cont-btn');
+  if (!b) return;
+  const tip = micContBtnTip();
+  b.classList.toggle('on', micContinuousMode);
+  b.innerHTML = micContBtnInner();
+  b.setAttribute('aria-label', tip);
+  b.setAttribute('data-tip', tip);
 }
 
 function refreshReadArea() {
@@ -2575,6 +2610,8 @@ let recogWordSubPtr = 0;     // index of the next expected token within recogWor
 let recogWrongStreak = 0;    // consecutive mismatches on the current word
 let recogManualStop = false; // guards against auto-restart after an intentional stop
 let recogConsumed = {};      // per result-index: how many of its tokens we've already resolved
+let micContinuousMode = false; // voice practice auto-advancing through the range, ayah after ayah
+let micRangeDone = 0;          // ayahs successfully recited so far in the current continuous session
 
 // Some surahs open with "disconnected letters" (muqatta'at) — e.g. الم, كهيعص,
 // حم — displayed as one joined token but recited letter-by-letter (aleef,
@@ -2693,11 +2730,21 @@ function startListening(numInSurah) {
   };
 
   updateMicBtn(numInSurah, true);
-  toast(t('micListening'));
+  // A per-ayah "listening" toast would spam the screen every time a
+  // continuous range session auto-advances — the pulsing range button
+  // already shows it's listening throughout, so only toast for a
+  // single-ayah session.
+  if (!micContinuousMode) toast(t('micListening'));
   try { recog.start(); } catch { toast(t('micDenied')); stopListening(); }
 }
 
-function stopListening() {
+// Tears down the active recognition instance only. `clearContinuous` decides
+// whether that also cancels an in-progress range session: startListening()
+// calls this indirectly via stopAudio() on every ayah transition (including
+// mid-continuous-session ones), so THAT path must leave micContinuousMode
+// alone — only an actual user-initiated stop (or a real error) should cancel
+// the whole session, not the routine per-ayah teardown/rebuild.
+function stopRecogInstance(clearContinuous) {
   recogManualStop = true;
   const prevAyah = recogAyah;
   const r = recog;
@@ -2708,10 +2755,94 @@ function stopListening() {
     try { r.stop(); } catch {}
   }
   if (prevAyah != null) updateMicBtn(prevAyah, false);
+  if (clearContinuous && micContinuousMode) {
+    micContinuousMode = false;
+    updateMicContBtn();
+  }
+}
+function stopListening() {
+  stopRecogInstance(true);
+}
+
+// First ayah at or after `from` (up to `rangeEnd`) that voice practice can
+// actually attempt — skips muqatta'at ayahs on iOS (see isIOSDevice above),
+// same as the per-ayah mic button being hidden there. Returns null if
+// nothing in the remaining range is listenable.
+function nextListenableAyah(from, rangeEnd) {
+  for (let n = from; n <= rangeEnd; n++) {
+    const a = state.surah.ayahs.find(x => x.numberInSurah === n);
+    if (a && !(isIOSDevice() && ayahHasMuqattaat(a.text))) return n;
+  }
+  return null;
+}
+
+function toggleListenSurah() {
+  if (micContinuousMode) { stopListening(); return; }
+  if (!state.surah) return;
+  const SR = speechRecognitionCtor();
+  if (!SR) { toast(t('micUnsupported')); return; }
+  const rangeEnd = rangeTo || state.surah.ayahs.length;
+  const startNum = nextListenableAyah(rangeFrom || 1, rangeEnd);
+  if (startNum == null) { toast(t('micUnsupported')); return; }
+  micContinuousMode = true;
+  micRangeDone = 0;
+  updateMicContBtn();
+  toast(t('micListening'));
+  startListening(startNum);
+  const card = document.getElementById('ayah-' + startNum);
+  if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+// Move voice practice on to the next ayah in the range without leaving
+// continuous mode — mirrors advanceContinuous() for audio playback, but
+// swaps the recognition target instead of restarting an <audio> element.
+// startListening() tears down the previous ayah's recog instance itself
+// (via stopAudio -> stopRecogInstance(false)), so this only needs to decide
+// where to go next.
+function advanceListen(numInSurah) {
+  micRangeDone++;
+  const rangeEnd = rangeTo || state.surah.ayahs.length;
+  const nextNum = nextListenableAyah(numInSurah + 1, rangeEnd);
+  if (nextNum == null) {
+    micContinuousMode = false;
+    stopRecogInstance(false);
+    updateMicContBtn();
+    toast(t('micSurahDone', micRangeDone));
+    return;
+  }
+  startListening(nextNum);
+  const card = document.getElementById('ayah-' + nextNum);
+  if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+// Quranic waqf/pause marks (ۖ ۗ ۘ ۙ ۚ ۛ) sit between words as their own
+// space-separated "word" in the text but were never actually recited, so
+// they normalize to an empty string and can never be matched against real
+// speech (wordsMatch() rejects empty input on either side). Left unhandled,
+// any ayah containing one would permanently stall recognition right there —
+// skip them automatically instead, same as if they'd been "said" for free.
+function skipEmptyExpectedWords(numInSurah) {
+  while (recogPtr < recogWords.length && !recogWords[recogPtr].tokens[recogWordSubPtr]) {
+    recogWordSubPtr++;
+    if (recogWordSubPtr >= recogWords[recogPtr].tokens.length) {
+      recogPtr++;
+      recogWordSubPtr = 0;
+    }
+  }
+  setRevealCount(numInSurah, recogPtr);
+}
+
+function isAyahRecognitionDone(numInSurah) {
+  if (recogPtr < recogWords.length) return false;
+  if (micContinuousMode) advanceListen(numInSurah);
+  else { toast(t('micDone')); stopListening(); }
+  return true;
 }
 
 function handleRecogResult(e, numInSurah) {
   if (recogAyah !== numInSurah) return;
+  skipEmptyExpectedWords(numInSurah);
+  if (isAyahRecognitionDone(numInSurah)) return;
   for (let i = e.resultIndex; i < e.results.length; i++) {
     const res = e.results[i];
     // One token array per recognition alternative (top guess first). The
@@ -2763,6 +2894,8 @@ function handleRecogResult(e, numInSurah) {
           recogPtr++;
           recogWordSubPtr = 0;
           setRevealCount(numInSurah, recogPtr);
+          skipEmptyExpectedWords(numInSurah);
+          if (isAyahRecognitionDone(numInSurah)) return;
         }
       } else if (res.isFinal) {
         recogWrongStreak++;
@@ -2777,11 +2910,7 @@ function handleRecogResult(e, numInSurah) {
       }
     }
     recogConsumed[i] = consumed;
-    if (recogPtr >= recogWords.length) {
-      toast(t('micDone'));
-      stopListening();
-      return;
-    }
+    if (isAyahRecognitionDone(numInSurah)) return;
   }
 }
 
