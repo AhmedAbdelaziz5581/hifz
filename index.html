@@ -2728,6 +2728,7 @@ function handleRecogResult(e, numInSurah) {
 
 function handleRecogError(e, numInSurah) {
   if (recogAyah !== numInSurah) return;
+  console.log('[hifz-mic] error:', e.error, e.message || '(no message)');
   if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
     toast(t('micDenied'));
     stopListening();
