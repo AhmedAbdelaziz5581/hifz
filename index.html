@@ -422,6 +422,7 @@
     margin-bottom: 14px;
   }
   .mem-cont-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+  .mem-cont-mid { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
   .range-row {
     display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
     gap: 8px; margin-bottom: 16px;
@@ -2075,11 +2076,11 @@ function renderSurah() {
     ${mem ? `<div class="hint">${esc(t('memHint'))}</div>` : ''}
     ${mem ? `<div class="mem-cont-row">
       <button class="pg-nav" onclick="openSurah(${s.number - 1})" ${s.number <= 1 ? 'disabled' : ''} aria-label="${esc(t('prevSurah'))}" data-tip="${esc(t('prevSurah'))}">‹</button>
-      <button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()" aria-label="${esc(continuousBtnTip())}" data-tip="${esc(continuousBtnTip())}">${continuousBtnInner()}</button>
+      <div class="mem-cont-mid">
+        <button class="cont-btn ${continuousMode ? 'on' : ''}" onclick="toggleContinuous()" aria-label="${esc(continuousBtnTip())}" data-tip="${esc(continuousBtnTip())}">${continuousBtnInner()}</button>
+        <button class="cont-btn mic-cont-btn ${micContinuousMode ? 'on' : ''}" id="mic-cont-btn" onclick="toggleListenSurah()" aria-label="${esc(micContBtnTip())}" data-tip="${esc(micContBtnTip())}">${micContBtnInner()}</button>
+      </div>
       <button class="pg-nav" onclick="openSurah(${s.number + 1})" ${s.number >= TOTAL_SURAHS ? 'disabled' : ''} aria-label="${esc(t('nextSurah'))}" data-tip="${esc(t('nextSurah'))}">›</button>
-    </div>
-    <div class="mem-cont-row">
-      <button class="cont-btn mic-cont-btn ${micContinuousMode ? 'on' : ''}" id="mic-cont-btn" onclick="toggleListenSurah()" aria-label="${esc(micContBtnTip())}" data-tip="${esc(micContBtnTip())}">${micContBtnInner()}</button>
     </div>` : ''}
     ${mem ? rangeRowHTML(s) : ''}
     ${mem
