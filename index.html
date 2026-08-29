@@ -1356,7 +1356,7 @@ function fromArDigits(s) {
 // Remove Arabic diacritics (harakat) and normalize alef-wasla — makes short
 // names clear and readable at small sizes.
 function stripHarakat(s) {
-  return s.replace(/[\u0610-\u061A\u064B-\u0652\u0654-\u065F\u0670\u0640\u06D6-\u06ED]/g, '').replace(/\u0671/g, '\u0627');
+  return s.replace(/[\u0610-\u061A\u064B-\u0652\u0653-\u065F\u0670\u0640\u06D6-\u06ED]/g, '').replace(/\u0671/g, '\u0627');
 }
 // Normalize Arabic text for search matching: strips harakat, then folds letter
 // variants that different keyboards (Persian/Urdu layouts, iOS autocorrect,
@@ -2551,11 +2551,32 @@ function revealAll(numInSurah) {
    guess at which words were said. */
 let recog = null;            // active SpeechRecognition instance, or null
 let recogAyah = null;        // numberInSurah currently being listened to
-let recogWords = [];         // normalized expected words for the current ayah
-let recogPtr = 0;            // index of the next expected word
+let recogWords = [];         // [{tokens:[...]}] expected spoken tokens per displayed word
+let recogPtr = 0;            // index of the next expected displayed word
+let recogWordSubPtr = 0;     // index of the next expected token within recogWords[recogPtr]
 let recogWrongStreak = 0;    // consecutive mismatches on the current word
 let recogManualStop = false; // guards against auto-restart after an intentional stop
 let recogConsumed = {};      // per result-index: how many of its tokens we've already resolved
+
+// Some surahs open with "disconnected letters" (muqatta'at) — e.g. الم, كهيعص,
+// حم — displayed as one joined token but recited letter-by-letter (aleef,
+// laam, meem, ...), not as a word. Matched literally, these can never match
+// what's actually spoken, so they're special-cased by their exact set of
+// forms (all 29 muqatta'at occurrences in the Quran use one of these 14).
+const MUQATTAAT_LETTER_NAME = {
+  'ا': 'الف', 'ل': 'لام', 'م': 'ميم', 'ص': 'صاد', 'ر': 'راء', 'ك': 'كاف',
+  'ه': 'هاء', 'ي': 'ياء', 'ع': 'عين', 'ط': 'طاء', 'س': 'سين', 'ن': 'نون',
+  'ق': 'قاف', 'ح': 'حاء'
+};
+const MUQATTAAT_WORDS = new Set(['الم', 'المص', 'الر', 'المر', 'كهيعص', 'طه', 'طسم', 'طس', 'يس', 'ص', 'حم', 'عسق', 'ق', 'ن']);
+
+// Expected spoken token(s) for one displayed word: letter names for
+// muqatta'at, otherwise just the word itself (unchanged behavior).
+function expectedTokensForWord(word) {
+  const norm = normalizeArSearch(word);
+  if (MUQATTAAT_WORDS.has(norm)) return norm.split('').map(ch => MUQATTAAT_LETTER_NAME[ch] || ch);
+  return [norm];
+}
 
 function speechRecognitionCtor() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -2597,8 +2618,9 @@ function startListening(numInSurah) {
   stopAudio();   // also stops any other in-progress listening session
 
   recogAyah = numInSurah;
-  recogWords = a.text.split(' ').map(w => normalizeArSearch(w));
+  recogWords = a.text.split(' ').map(w => ({ tokens: expectedTokensForWord(w) }));
   recogPtr = 0;
+  recogWordSubPtr = 0;
   recogWrongStreak = 0;
   recogManualStop = false;
   recogConsumed = {};
@@ -2667,12 +2689,21 @@ function handleRecogResult(e, numInSurah) {
     // more audio (or the final) to resolve it instead of flashing "wrong"
     // on a word that was only briefly misheard mid-recognition.
     while (consumed < tokens.length && recogPtr < recogWords.length) {
-      const matched = altTokenLists.some(list => wordsMatch(list[consumed], recogWords[recogPtr]));
+      const expectedTokens = recogWords[recogPtr].tokens;
+      const expectedTok = expectedTokens[recogWordSubPtr];
+      const matched = altTokenLists.some(list => wordsMatch(list[consumed], expectedTok));
       if (matched) {
-        recogPtr++;
         recogWrongStreak = 0;
-        setRevealCount(numInSurah, recogPtr);
         consumed++;
+        recogWordSubPtr++;
+        // Muqatta'at words expect several spoken letter-names for one
+        // displayed word — only advance to the next word once all of them
+        // (e.g. aleef, laam, meem) have been matched.
+        if (recogWordSubPtr >= expectedTokens.length) {
+          recogPtr++;
+          recogWordSubPtr = 0;
+          setRevealCount(numInSurah, recogPtr);
+        }
       } else if (res.isFinal) {
         recogWrongStreak++;
         flashWrongWord(numInSurah, recogPtr);
