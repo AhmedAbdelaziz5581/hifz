@@ -561,13 +561,16 @@
     background-repeat: no-repeat;
     /* Vertically centering the band on the element's own (font-metrics-tall)
        box does NOT center it on the visible ink — Amiri Quran's baseline
-       sits well below that box's midpoint, so a plain "center" band left
-       diacritics like the kasra (below baseline) poking out the bottom.
-       These values were tuned by measuring actual rendered diacritic
-       glyph positions (kasra below, shadda above) against candidate bands
-       until both cleared with a small safety margin. */
-    background-position: center 62%;
-    background-size: 100% 2.6em;
+       sits well below that box's midpoint. Anchoring to the bottom edge
+       (rather than a percentage) pins that edge exactly regardless of a
+       given line's height, so shrinking the band only ever trims from the
+       top. Sized to fully cover the base letters themselves (measured via
+       canvas text metrics on undiacritized text) rather than the outer
+       tip of every stacked diacritic — some marks (e.g. the muqatta'at
+       madda, ٓ) reach almost the font's full line height, which would
+       leave very little room to shrink if they had to be covered too. */
+    background-position: center bottom;
+    background-size: 100% 1.6em;
     /* An ayah's highlight can wrap across lines. Without this, the
        background paints as one connected shape across the line fragments
        instead of each getting its own centered band, which looked like it
