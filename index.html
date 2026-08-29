@@ -2617,6 +2617,12 @@ function startListening(numInSurah) {
 
   stopAudio();   // also stops any other in-progress listening session
 
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'microphone' })
+      .then(p => console.log('[hifz-mic] navigator permission state:', p.state))
+      .catch(err => console.log('[hifz-mic] permission query failed:', err.message));
+  }
+
   recogAyah = numInSurah;
   recogWords = a.text.split(' ').map(w => ({ tokens: expectedTokensForWord(w) }));
   recogPtr = 0;
@@ -2648,7 +2654,11 @@ function startListening(numInSurah) {
 
   updateMicBtn(numInSurah, true);
   toast(t('micListening'));
-  try { recog.start(); } catch { toast(t('micDenied')); stopListening(); }
+  try { recog.start(); } catch (err) {
+    console.log('[hifz-mic] start() threw:', err && err.name, err && err.message);
+    toast(t('micDenied'));
+    stopListening();
+  }
 }
 
 function stopListening() {
