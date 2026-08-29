@@ -2466,6 +2466,9 @@ function ayahCardHTML(a) {
   const revealBtn = mem
     ? `<button class="icon-btn reveal-btn ${fullyShown ? 'on' : ''}" id="eye-${a.numberInSurah}" onclick="revealAll(${a.numberInSurah})" title="${esc(t('showHide'))}">${eyeSVG(fullyShown)}</button>`
     : '';
+  const micBtn = (isIOSDevice() && ayahHasMuqattaat(a.text))
+    ? ''
+    : `<button class="icon-btn mic-btn" id="mic-${a.numberInSurah}" onclick="toggleListen(${a.numberInSurah})" aria-label="${esc(t('listenPractice'))}" data-tip="${esc(t('listenPractice'))}">${micIconSVG()}</button>`;
   return `
   <div class="ayah-card ${isMem ? 'done' : ''}" id="ayah-${a.numberInSurah}">
     <div class="ayah-ar" ${mem ? `onclick="revealNext(${a.numberInSurah})"` : ''} id="ar-${a.numberInSurah}">${wordSpans}</div>
@@ -2482,7 +2485,7 @@ function ayahCardHTML(a) {
       <span class="ayah-no">${t('ayahLabel', a.numberInSurah)}</span>
       <div class="foot-side end">
         ${revealBtn}
-        <button class="icon-btn mic-btn" id="mic-${a.numberInSurah}" onclick="toggleListen(${a.numberInSurah})" aria-label="${esc(t('listenPractice'))}" data-tip="${esc(t('listenPractice'))}">${micIconSVG()}</button>
+        ${micBtn}
         <button class="icon-btn play-btn" id="play-${a.numberInSurah}" onclick="playAyah(${a.numberInSurah})" aria-label="${esc(t('listen'))}" data-tip="${esc(t('listen'))}">${playIconSVG()}</button>
       </div>
     </div>
@@ -2580,6 +2583,21 @@ function expectedTokensForWord(word) {
   const norm = normalizeArSearch(word);
   if (MUQATTAAT_WORDS.has(norm)) return norm.split('').map(ch => MUQATTAAT_LETTER_NAME[ch] || ch);
   return [norm];
+}
+
+function ayahHasMuqattaat(text) {
+  return text.split(' ').some(w => MUQATTAAT_WORDS.has(normalizeArSearch(w)));
+}
+
+// iOS's speech-recognition engine has no usable acoustic model for the
+// elongated single-letter recitation muqatta'at ayahs require — it hears
+// things like "aleef" (أَلِف) as literal digits, not as a mismatched but
+// close word. No amount of matching tolerance can bridge that, so the mic
+// is hidden for these ayahs on iOS specifically; desktop browsers (Chrome)
+// handle them fine via the letter-name matching above and are unaffected.
+function isIOSDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
 // Temporary on-screen debug trace for diagnosing mic issues on devices
