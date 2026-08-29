@@ -550,28 +550,33 @@
     cursor: pointer;
     border-radius: 10px;
     padding: 3px 4px;
-    margin: 0 2px;
-    transition: background .2s ease;
-    /* An ayah's highlight can wrap across lines, or sit right next to
-       another highlighted ayah on the same line. Without this, the
-       background/box-shadow paints as one connected box across line
-       fragments instead of each getting its own rounded corners, making
-       adjacent/wrapped ayahs' highlights look like they're overlapping.
-       The margin above adds an explicit gap between neighboring ayahs on
-       the same line, since relying only on the whitespace text node
-       between spans isn't a reliable enough gap in every RTL renderer. */
+    transition: background-image .2s ease;
+    /* Amiri Quran's own glyph metrics (built generously tall to stack
+       multiple diacritics) are what actually size a plain background on
+       this element — line-height has no effect on it at all, and even
+       zero padding barely helps. Painting a fixed-height color band
+       instead (sized in em so it scales with the responsive font-size
+       breakpoints) makes the highlight hug the visible text instead of
+       filling the font's full, much taller, natural line box. */
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 1.5em;
+    /* An ayah's highlight can wrap across lines. Without this, the
+       background paints as one connected shape across the line fragments
+       instead of each getting its own centered band, which looked like it
+       was overlapping the next line's content. */
     -webkit-box-decoration-break: clone;
     box-decoration-break: clone;
   }
-  .m-ayah:hover { background: rgba(0,0,0,.04); }
-  .m-ayah.playing { background: #dcf1f4; box-shadow: 0 0 0 1px #a9dbe2 inset; }
-  .m-ayah.mem { background: var(--primary-soft); }
-  .m-ayah.mem.playing { background: #dcf1f4; box-shadow: 0 0 0 1px #a9dbe2 inset; }
+  .m-ayah:hover { background-image: linear-gradient(rgba(0,0,0,.04), rgba(0,0,0,.04)); }
+  .m-ayah.playing { background-image: linear-gradient(#dcf1f4, #dcf1f4); }
+  .m-ayah.mem { background-image: linear-gradient(var(--primary-soft), var(--primary-soft)); }
+  .m-ayah.mem.playing { background-image: linear-gradient(#dcf1f4, #dcf1f4); }
   @keyframes bookmarkPulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(201,162,39,.6); }
     50% { box-shadow: 0 0 0 9px rgba(201,162,39,0); }
   }
-  .m-ayah.bookmark-pulse { background: var(--gold-soft); animation: bookmarkPulse 1.3s ease-out 3; }
+  .m-ayah.bookmark-pulse { background-image: linear-gradient(var(--gold-soft), var(--gold-soft)); animation: bookmarkPulse 1.3s ease-out 3; }
   /* Ayah-end ornament: an inked ring with a fine radiating-dot halo,
      echoing the traditional Quranic ayah-stop mark (۝). */
   .ayah-marker {
