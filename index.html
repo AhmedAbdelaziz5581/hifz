@@ -550,7 +550,18 @@
     cursor: pointer;
     border-radius: 10px;
     padding: 3px 4px;
+    margin: 0 2px;
     transition: background .2s ease;
+    /* An ayah's highlight can wrap across lines, or sit right next to
+       another highlighted ayah on the same line. Without this, the
+       background/box-shadow paints as one connected box across line
+       fragments instead of each getting its own rounded corners, making
+       adjacent/wrapped ayahs' highlights look like they're overlapping.
+       The margin above adds an explicit gap between neighboring ayahs on
+       the same line, since relying only on the whitespace text node
+       between spans isn't a reliable enough gap in every RTL renderer. */
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
   .m-ayah:hover { background: rgba(0,0,0,.04); }
   .m-ayah.playing { background: #dcf1f4; box-shadow: 0 0 0 1px #a9dbe2 inset; }
