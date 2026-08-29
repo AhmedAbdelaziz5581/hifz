@@ -2617,12 +2617,6 @@ function startListening(numInSurah) {
 
   stopAudio();   // also stops any other in-progress listening session
 
-  if (navigator.permissions && navigator.permissions.query) {
-    navigator.permissions.query({ name: 'microphone' })
-      .then(p => console.log('[hifz-mic] navigator permission state:', p.state))
-      .catch(err => console.log('[hifz-mic] permission query failed:', err.message));
-  }
-
   recogAyah = numInSurah;
   recogWords = a.text.split(' ').map(w => ({ tokens: expectedTokensForWord(w) }));
   recogPtr = 0;
@@ -2654,11 +2648,7 @@ function startListening(numInSurah) {
 
   updateMicBtn(numInSurah, true);
   toast(t('micListening'));
-  try { recog.start(); } catch (err) {
-    console.log('[hifz-mic] start() threw:', err && err.name, err && err.message);
-    toast(t('micDenied'));
-    stopListening();
-  }
+  try { recog.start(); } catch { toast(t('micDenied')); stopListening(); }
 }
 
 function stopListening() {
@@ -2688,7 +2678,6 @@ function handleRecogResult(e, numInSurah) {
       altTokenLists.push((res[a].transcript || '').trim().split(/\s+/).filter(Boolean).map(w => normalizeArSearch(w)));
     }
     const tokens = altTokenLists[0];
-    if (res.isFinal) console.log('[hifz-mic] heard:', altTokenLists.map(l => l.join(' ')), 'expected next:', recogWords[recogPtr] && recogWords[recogPtr].tokens[recogWordSubPtr]);
     let consumed = recogConsumed[i] || 0;
     // Interim results grow as the engine refines its guess for the SAME
     // utterance, so only the tokens past what we've already resolved for
@@ -2738,7 +2727,6 @@ function handleRecogResult(e, numInSurah) {
 
 function handleRecogError(e, numInSurah) {
   if (recogAyah !== numInSurah) return;
-  console.log('[hifz-mic] error:', e.error, e.message || '(no message)');
   if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
     toast(t('micDenied'));
     stopListening();
