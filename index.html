@@ -1122,6 +1122,8 @@ let continuousFailStreak = 0; // consecutive audio-load/play failures during con
 let rangeFrom = null;         // memorize mode: repeat-range start ayah (null = full surah)
 let rangeTo = null;           // memorize mode: repeat-range end ayah (null = full surah)
 let rangePassesLeft = 0;      // memorize mode: full range repetitions left in the current session
+let rangePassesTotal = 0;     // memorize mode: Repeat count the current session started with
+let rangePassesDone = 0;      // memorize mode: full passes actually completed so far this session
 
 let lang = LS.get('hifz:lang', 'ar');   // 'ar' (default) | 'en'
 
@@ -1168,7 +1170,7 @@ const I18N = {
     repeatFromLabel: 'كرر من آية',
     repeatToLabel: 'إلى',
     toastContinuousStopped: 'توقفت التلاوة المتتابعة — تعذّر تحميل الصوت',
-    toastRangeDone: 'تم — انتهى تكرار النطاق ✓',
+    toastRangeDone: n => `تم — انتهى تكرار النطاق (${toDigits(n)} ${n === 1 ? 'مرة' : 'مرات'}) ✓`,
     rangeRepeatHint: 'يُطبَّق عدد «التكرار» أعلاه على هذا النطاق كاملاً، وليس على كل آية',
     toastBookmarked: 'تم حفظ موضعك 🔖',
     toastUnbookmarked: 'تم إلغاء العلامة',
@@ -1274,7 +1276,7 @@ const I18N = {
     repeatFromLabel: 'Repeat ayah',
     repeatToLabel: 'to',
     toastContinuousStopped: 'Continuous recitation stopped — audio failed to load',
-    toastRangeDone: 'Done — range repeat finished ✓',
+    toastRangeDone: n => `Done — range repeat finished (${n} ${n === 1 ? 'pass' : 'passes'}) ✓`,
     rangeRepeatHint: 'The "Repeat" count above applies to this whole range, not to each ayah',
     toastBookmarked: 'Position saved 🔖',
     toastUnbookmarked: 'Bookmark removed',
@@ -2337,6 +2339,8 @@ function startContinuous() {
   } else {
     startNum = rangeFrom || 1;
     rangePassesLeft = state.repeat;   // repeat the whole range this many times, then stop — not forever
+    rangePassesTotal = state.repeat;
+    rangePassesDone = 0;
   }
   playAyah(startNum, true);
 }
@@ -2368,14 +2372,21 @@ function advanceContinuous(numInSurah) {
     const rangeEnd = rangeTo || state.surah.ayahs.length;
     if (nextNum > rangeEnd) {
       rangePassesLeft--;
+      rangePassesDone++;
       if (rangePassesLeft <= 0) {
         continuousMode = false;
         stopAudio();
         updateContinuousBtn();
-        toast(t('toastRangeDone'));
+        toast(t('toastRangeDone', rangePassesDone));
         return;
       }
       nextNum = rangeFrom || 1;
+      // Re-hide every ayah in the range for the new pass — otherwise only
+      // the ayah about to play gets re-hidden (in startPlayback), while the
+      // rest of the range stays fully revealed from the pass that just
+      // finished, so most of the next pass looks already-memorized instead
+      // of testing recall again.
+      for (let n = nextNum; n <= rangeEnd; n++) setRevealCount(n, 0);
     }
   }
   const next = state.surah.ayahs.find(x => x.numberInSurah === nextNum);
