@@ -2678,6 +2678,7 @@ function handleRecogResult(e, numInSurah) {
       altTokenLists.push((res[a].transcript || '').trim().split(/\s+/).filter(Boolean).map(w => normalizeArSearch(w)));
     }
     const tokens = altTokenLists[0];
+    if (res.isFinal) console.log('[hifz-mic] heard:', altTokenLists.map(l => l.join(' ')), 'expected next:', recogWords[recogPtr] && recogWords[recogPtr].tokens[recogWordSubPtr]);
     let consumed = recogConsumed[i] || 0;
     // Interim results grow as the engine refines its guess for the SAME
     // utterance, so only the tokens past what we've already resolved for
