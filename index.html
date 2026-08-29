@@ -1043,6 +1043,7 @@
 <body>
 <div class="app" id="app"></div>
 <div class="toast" id="toast"></div>
+<div id="mic-debug" hidden style="position:fixed;left:0;right:0;bottom:0;max-height:40vh;overflow-y:auto;background:#000;color:#0f0;font:11px/1.4 monospace;padding:8px;direction:ltr;text-align:left;z-index:9999;white-space:pre-wrap;"></div>
 
 <button class="feedback-fab" id="feedback-fab" onclick="openFeedback()" aria-label="Feedback" hidden></button>
 
@@ -2578,6 +2579,18 @@ function expectedTokensForWord(word) {
   return [norm];
 }
 
+// Temporary on-screen debug trace for diagnosing mic issues on devices
+// without attachable devtools (e.g. iPhone Safari) — visit with ?micdebug=1.
+const micDebugOn = location.search.includes('micdebug');
+function micDebug(msg) {
+  if (!micDebugOn) return;
+  const el = document.getElementById('mic-debug');
+  if (!el) return;
+  el.hidden = false;
+  el.textContent += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
 function speechRecognitionCtor() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
@@ -2619,6 +2632,7 @@ function startListening(numInSurah) {
 
   recogAyah = numInSurah;
   recogWords = a.text.split(' ').map(w => ({ tokens: expectedTokensForWord(w) }));
+  micDebug('--- started ayah ' + numInSurah + ' — expecting: ' + recogWords.map(w => w.tokens.join('/')).join(' | '));
   recogPtr = 0;
   recogWordSubPtr = 0;
   recogWrongStreak = 0;
@@ -2678,6 +2692,10 @@ function handleRecogResult(e, numInSurah) {
       altTokenLists.push((res[a].transcript || '').trim().split(/\s+/).filter(Boolean).map(w => normalizeArSearch(w)));
     }
     const tokens = altTokenLists[0];
+    if (res.isFinal) {
+      const expectedTokens = recogWords[recogPtr] && recogWords[recogPtr].tokens;
+      micDebug('heard: ' + altTokenLists.map(l => l.join(' ')).join(' | ') + '  expected: ' + (expectedTokens ? expectedTokens[recogWordSubPtr] : '(done)'));
+    }
     let consumed = recogConsumed[i] || 0;
     // Interim results grow as the engine refines its guess for the SAME
     // utterance, so only the tokens past what we've already resolved for
@@ -2727,6 +2745,7 @@ function handleRecogResult(e, numInSurah) {
 
 function handleRecogError(e, numInSurah) {
   if (recogAyah !== numInSurah) return;
+  micDebug('error: ' + e.error);
   if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
     toast(t('micDenied'));
     stopListening();
