@@ -2694,7 +2694,17 @@ function handleRecogResult(e, numInSurah) {
     const tokens = altTokenLists[0];
     if (res.isFinal) {
       const expectedTokens = recogWords[recogPtr] && recogWords[recogPtr].tokens;
-      micDebug('heard: ' + altTokenLists.map(l => l.join(' ')).join(' | ') + '  expected: ' + (expectedTokens ? expectedTokens[recogWordSubPtr] : '(done)'));
+      const expectedTok = expectedTokens ? expectedTokens[recogWordSubPtr] : null;
+      const firstHeard = tokens[0] || '';
+      micDebug(JSON.stringify({
+        resultIndex: i,
+        alts: altTokenLists,
+        consumedBefore: recogConsumed[i] || 0,
+        recogPtr, recogWordSubPtr,
+        expected: expectedTok,
+        firstHeardCodes: [...firstHeard].map(c => c.codePointAt(0).toString(16)),
+        expectedCodes: expectedTok ? [...expectedTok].map(c => c.codePointAt(0).toString(16)) : null
+      }));
     }
     let consumed = recogConsumed[i] || 0;
     // Interim results grow as the engine refines its guess for the SAME
