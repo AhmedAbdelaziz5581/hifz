@@ -557,20 +557,32 @@
        zero padding barely helps. Painting a fixed-height color band
        instead (sized in em so it scales with the responsive font-size
        breakpoints) makes the highlight hug the visible text instead of
-       filling the font's full, much taller, natural line box. */
+       filling the font's full, much taller, natural line box.
+       border-radius alone only rounds the element's TRUE (tall) box edges
+       — irrelevant here since the band's top edge is an internal cut, not
+       a real edge — so the band is built from four layered gradients: two
+       radial ones punch rounded top corners (matching the element's own
+       10px radius, which already handles the bottom corners since the
+       band sits flush there), and two flat ones fill the rest. --hl-color
+       is set per state below; unset (default) renders fully transparent. */
+    --hl-r: 10px;
+    --hl-h: calc(1.6em + 2px - var(--hl-r));
     background-repeat: no-repeat;
-    /* Vertically centering the band on the element's own (font-metrics-tall)
-       box does NOT center it on the visible ink — Amiri Quran's baseline
-       sits well below that box's midpoint. Anchoring to the bottom edge
-       (rather than a percentage) pins that edge exactly regardless of a
-       given line's height, so shrinking the band only ever trims from the
-       top. Sized to fully cover the base letters themselves (measured via
-       canvas text metrics on undiacritized text) rather than the outer
-       tip of every stacked diacritic — some marks (e.g. the muqatta'at
-       madda, ٓ) reach almost the font's full line height, which would
-       leave very little room to shrink if they had to be covered too. */
-    background-position: center bottom;
-    background-size: 100% 1.6em;
+    background-image:
+      radial-gradient(circle var(--hl-r) at 100% 100%, var(--hl-color, transparent) 99%, transparent 100%),
+      radial-gradient(circle var(--hl-r) at 0% 100%, var(--hl-color, transparent) 99%, transparent 100%),
+      linear-gradient(var(--hl-color, transparent), var(--hl-color, transparent)),
+      linear-gradient(var(--hl-color, transparent), var(--hl-color, transparent));
+    background-size:
+      var(--hl-r) var(--hl-r),
+      var(--hl-r) var(--hl-r),
+      calc(100% - 2 * var(--hl-r)) var(--hl-r),
+      100% var(--hl-h);
+    background-position:
+      left 0 bottom var(--hl-h),
+      right 0 bottom var(--hl-h),
+      left var(--hl-r) bottom var(--hl-h),
+      bottom;
     /* An ayah's highlight can wrap across lines. Without this, the
        background paints as one connected shape across the line fragments
        instead of each getting its own centered band, which looked like it
@@ -578,15 +590,15 @@
     -webkit-box-decoration-break: clone;
     box-decoration-break: clone;
   }
-  .m-ayah:hover { background-image: linear-gradient(rgba(0,0,0,.04), rgba(0,0,0,.04)); }
-  .m-ayah.playing { background-image: linear-gradient(#dcf1f4, #dcf1f4); }
-  .m-ayah.mem { background-image: linear-gradient(var(--primary-soft), var(--primary-soft)); }
-  .m-ayah.mem.playing { background-image: linear-gradient(#dcf1f4, #dcf1f4); }
+  .m-ayah:hover { --hl-color: rgba(0,0,0,.04); }
+  .m-ayah.playing { --hl-color: #dcf1f4; }
+  .m-ayah.mem { --hl-color: var(--primary-soft); }
+  .m-ayah.mem.playing { --hl-color: #dcf1f4; }
   @keyframes bookmarkPulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(201,162,39,.6); }
     50% { box-shadow: 0 0 0 9px rgba(201,162,39,0); }
   }
-  .m-ayah.bookmark-pulse { background-image: linear-gradient(var(--gold-soft), var(--gold-soft)); animation: bookmarkPulse 1.3s ease-out 3; }
+  .m-ayah.bookmark-pulse { --hl-color: var(--gold-soft); animation: bookmarkPulse 1.3s ease-out 3; }
   /* Ayah-end ornament: an inked ring with a fine radiating-dot halo,
      echoing the traditional Quranic ayah-stop mark (۝). */
   .ayah-marker {
