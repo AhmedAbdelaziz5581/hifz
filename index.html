@@ -1561,7 +1561,7 @@ async function playAyah(numInSurah, cont) {
   // Fetch this reciter's audio url + precise word timings (both cached together).
   const va = await loadVerseAudio(reciter, state.surah.number, numInSurah);
   if (audioState.key !== key) return;   // user tapped elsewhere while loading
-  if (va) { audioState.url = va.url; audioState.segStarts = va.starts; continuousFailStreak = 0; }
+  if (va) { audioState.url = va.url; audioState.segStarts = va.starts; }
   else { handlePlaybackFailure(numInSurah); return; }
   startPlayback();
 }
@@ -1602,7 +1602,14 @@ function startPlayback() {
   // NOT reliably fire the element's error event — it used to be swallowed
   // here silently, which is one of the ways continuous playback could get
   // permanently stuck with nothing playing and nothing to ever advance it.
-  audio.play().catch(() => handlePlaybackFailure(numInSurah));
+  // The fail-streak only resets here, on a play() that actually resolved —
+  // resetting it earlier (e.g. as soon as the verse-audio API responds)
+  // meant a reachable API with consistently failing playback (bad CDN URL,
+  // autoplay revoked mid-session, ...) could reset the counter every single
+  // ayah, so the "stop after 3 failures" breaker never tripped and
+  // continuous mode silently skipped every remaining ayah in the surah
+  // with nothing audibly playing.
+  audio.play().then(() => { continuousFailStreak = 0; }).catch(() => handlePlaybackFailure(numInSurah));
   audio.onerror = () => handlePlaybackFailure(numInSurah);
   wireAudioHandlers(numInSurah);
 }
