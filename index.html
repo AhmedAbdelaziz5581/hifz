@@ -2128,6 +2128,10 @@ function renderSurah() {
       </div>
       <button class="pg-nav" onclick="openSurah(${s.number + 1})" ${s.number >= TOTAL_SURAHS ? 'disabled' : ''} aria-label="${esc(t('nextSurah'))}" data-tip="${esc(t('nextSurah'))}">›</button>
     </div>` : ''}
+    ${!mem ? `<div class="mem-cont-row">
+      <button class="pg-nav" onclick="openSurah(${s.number - 1})" ${s.number <= 1 ? 'disabled' : ''} aria-label="${esc(t('prevSurah'))}" data-tip="${esc(t('prevSurah'))}">‹</button>
+      <button class="pg-nav" onclick="openSurah(${s.number + 1})" ${s.number >= TOTAL_SURAHS ? 'disabled' : ''} aria-label="${esc(t('nextSurah'))}" data-tip="${esc(t('nextSurah'))}">›</button>
+    </div>` : ''}
     ${mem ? rangeRowHTML(s) : ''}
     ${mem
       ? `${s.basmala ? `<div class="basmala">${esc(s.basmala)}</div>` : ''}
