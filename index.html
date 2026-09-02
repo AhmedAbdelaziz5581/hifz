@@ -1470,14 +1470,18 @@ function memCountSurah(n, total) {
 // Reciters available on the Quran.com / Quran Foundation library — each provides
 // per-word timing segments, so word-by-word sync works for all of them.
 const RECITERS = [
-  { id: 7,  ar: 'مشاري العفاسي',        en: 'Mishary Alafasy' },
-  { id: 6,  ar: 'محمود خليل الحصري',    en: 'Mahmoud Al-Husary' },
-  { id: 2,  ar: 'عبد الباسط عبد الصمد', en: 'AbdulBaset AbdulSamad' },
-  { id: 9,  ar: 'محمد صديق المنشاوي',   en: 'Al-Minshawi' },
-  { id: 3,  ar: 'عبد الرحمن السديس',    en: 'Abdur-Rahman As-Sudais' },
-  { id: 4,  ar: 'أبو بكر الشاطري',      en: 'Abu Bakr Ash-Shatri' },
-  { id: 5,  ar: 'هاني الرفاعي',         en: 'Hani Ar-Rifai' },
-  { id: 10, ar: 'سعود الشريم',          en: 'Saud Ash-Shuraym' }
+  { id: 7,  ar: 'مشاري العفاسي',            en: 'Mishary Alafasy' },
+  { id: 6,  ar: 'محمود خليل الحصري',        en: 'Mahmoud Al-Husary' },
+  { id: 12, ar: 'محمود خليل الحصري (معلم)', en: 'Al-Husary (Muallim)' },
+  { id: 2,  ar: 'عبد الباسط عبد الصمد',     en: 'AbdulBaset AbdulSamad (Murattal)' },
+  { id: 1,  ar: 'عبد الباسط عبد الصمد (مجود)', en: 'AbdulBaset AbdulSamad (Mujawwad)' },
+  { id: 9,  ar: 'محمد صديق المنشاوي',       en: 'Al-Minshawi (Murattal)' },
+  { id: 8,  ar: 'محمد صديق المنشاوي (مجود)', en: 'Al-Minshawi (Mujawwad)' },
+  { id: 3,  ar: 'عبد الرحمن السديس',        en: 'Abdur-Rahman As-Sudais' },
+  { id: 4,  ar: 'أبو بكر الشاطري',          en: 'Abu Bakr Ash-Shatri' },
+  { id: 5,  ar: 'هاني الرفاعي',             en: 'Hani Ar-Rifai' },
+  { id: 10, ar: 'سعود الشريم',              en: 'Saud Ash-Shuraym' },
+  { id: 11, ar: 'محمد الطبلاوي',            en: 'Mohamed Al-Tablawi' }
 ];
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 let reciter = LS.get('hifz:reciter', 7);
