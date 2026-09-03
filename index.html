@@ -195,6 +195,34 @@
   .about-link { font-size: .78rem; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; padding: 4px 8px; }
   .about-link:hover { color: var(--primary); }
 
+  /* Offline downloads — per-surah "download for offline" row on the surah
+     page, plus the management list in the Account modal. */
+  #dl-row-wrap:empty { display: none; }
+  .dl-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .dl-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: 1.5px solid var(--border);
+    background: #fff;
+    color: var(--muted);
+    font-size: .8rem; font-weight: 600;
+  }
+  .dl-btn:hover { border-color: var(--primary); color: var(--primary); }
+  .dl-btn svg { width: 15px; height: 15px; }
+  .dl-status { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted); }
+  .dl-status.dl-done { color: var(--primary); font-weight: 600; }
+  .dl-status svg { width: 15px; height: 15px; }
+  .dl-bar { width: 90px; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .dl-bar span { display: block; height: 100%; background: var(--primary); transition: width .2s ease; }
+  .dl-link { font-size: .78rem; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+  .dl-link:hover { color: var(--danger); }
+  .dl-section { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 2px; }
+  .dl-section-head { display: flex; align-items: center; justify-content: space-between; font-size: .8rem; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
+  .dl-list-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: .85rem; }
+  .dl-list-name { color: var(--ink); }
+  .dl-list-reciter { color: var(--muted); font-size: .78rem; }
+
   .search-wrap { position: sticky; top: 0; z-index: 5; padding: 8px 0 12px; background: var(--bg); }
   .search {
     width: 100%;
@@ -1260,6 +1288,17 @@ const I18N = {
     listenRange: 'تسميع النطاق',
     stopListenRange: 'إيقاف التسميع',
     micSurahDone: n => `أحسنت! أتممت تسميع ${toDigits(n)} ${n === 1 ? 'آية' : 'آيات'} ✓`,
+    offlineUnsupported: 'المتصفح لا يدعم التحميل دون اتصال',
+    downloadOffline: 'تحميل للاستخدام دون اتصال',
+    downloadedOffline: 'متاح دون اتصال',
+    removeDownload: 'إزالة',
+    downloadingProgress: (d, n) => `جارٍ التحميل… ${toDigits(d)}/${toDigits(n)}`,
+    cancel: 'إلغاء',
+    toastDownloadDone: 'تم تحميل السورة للاستخدام دون اتصال ✓',
+    toastDownloadCancelled: 'تم إلغاء التحميل',
+    toastDownloadFail: 'تعذّر التحميل — تحقق من الاتصال وحاول مجددًا',
+    downloadsTitle: 'السور المحمّلة دون اتصال',
+    clearAllDownloads: 'حذف الكل',
     syncCta: 'مزامنة بين الأجهزة',
     syncedAs: email => `متصل كـ ${email}`,
     accountTitle: 'الحساب والمزامنة',
@@ -1369,6 +1408,17 @@ const I18N = {
     listenRange: 'Voice practice range',
     stopListenRange: 'Stop practice',
     micSurahDone: n => `Great! Recited ${n} ${n === 1 ? 'ayah' : 'ayahs'} ✓`,
+    offlineUnsupported: "This browser doesn't support offline downloads",
+    downloadOffline: 'Download for offline',
+    downloadedOffline: 'Available offline',
+    removeDownload: 'Remove',
+    downloadingProgress: (d, n) => `Downloading… ${d}/${n}`,
+    cancel: 'Cancel',
+    toastDownloadDone: 'Surah downloaded for offline use ✓',
+    toastDownloadCancelled: 'Download cancelled',
+    toastDownloadFail: 'Download failed — check your connection and try again',
+    downloadsTitle: 'Downloaded for offline',
+    clearAllDownloads: 'Clear all',
     syncCta: 'Sync across devices',
     syncedAs: email => `Synced as ${email}`,
     accountTitle: 'Account & Sync',
@@ -1515,6 +1565,121 @@ async function loadVerseAudio(reciterId, surah, ayah) {
   } catch { return null; }
 }
 
+/* ---------------- Offline downloads ----------------
+   Explicit, per-(surah, reciter) downloads only — nothing is cached just
+   from ordinary browsing/listening, so storage usage never grows as a
+   surprise. Surah text/translation is already durable offline for free
+   (loadSurah() caches it in localStorage on first view — see its comment),
+   so the only real gap this closes is the audio file bytes themselves.
+   Downloaded audio is served back offline transparently by the service
+   worker's fetch handler (sw.js); this code only fetches + writes into the
+   cache it reads from, and tracks what's been downloaded. */
+const OFFLINE_CACHE = 'hifz-offline-v1';
+let downloads = LS.get('hifz:downloads', {});   // { "surah:reciter": { ayahCount, at } }
+let activeDownload = null;                      // { surah, reciter, done, total, cancelled }
+
+function downloadKey(surahNum, reciterId) { return surahNum + ':' + reciterId; }
+function isSurahDownloaded(surahNum, reciterId) { return !!downloads[downloadKey(surahNum, reciterId)]; }
+function offlineSupported() { return 'caches' in window && 'serviceWorker' in navigator; }
+
+async function downloadSurah(surahNum) {
+  if (!offlineSupported()) { toast(t('offlineUnsupported')); return; }
+  if (activeDownload) return;
+  const s = state.surah;
+  if (!s || s.number !== surahNum) return;
+  const rid = reciter;
+  const ayahs = s.ayahs.slice();
+  activeDownload = { surah: surahNum, reciter: rid, done: 0, total: ayahs.length, cancelled: false };
+  refreshDownloadRow();
+  const cache = await caches.open(OFFLINE_CACHE);
+  const CONCURRENCY = 5;
+  let idx = 0;
+  async function worker() {
+    while (idx < ayahs.length) {
+      if (activeDownload.cancelled) return;
+      const a = ayahs[idx++];
+      const va = await loadVerseAudio(rid, surahNum, a.numberInSurah);
+      if (va && va.url) {
+        try {
+          const already = await cache.match(va.url);
+          if (!already) {
+            // Third-party CDN, not guaranteed to send CORS headers — no-cors
+            // still yields a valid (opaque) response the Cache API can
+            // store and the service worker can serve back later.
+            const ares = await fetch(va.url, { mode: 'no-cors' });
+            await cache.put(va.url, ares);
+          }
+        } catch {}
+      }
+      if (activeDownload) { activeDownload.done++; refreshDownloadRow(); }
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  const cancelled = activeDownload && activeDownload.cancelled;
+  activeDownload = null;
+  if (cancelled) {
+    toast(t('toastDownloadCancelled'));
+  } else {
+    downloads[downloadKey(surahNum, rid)] = { ayahCount: s.ayahs.length, at: Date.now() };
+    LS.set('hifz:downloads', downloads);
+    toast(t('toastDownloadDone'));
+  }
+  refreshDownloadRow();
+}
+
+function cancelDownload() {
+  if (activeDownload) activeDownload.cancelled = true;
+}
+
+async function removeDownload(surahNum, reciterId) {
+  delete downloads[downloadKey(surahNum, reciterId)];
+  LS.set('hifz:downloads', downloads);
+  refreshDownloadRow();
+  if (document.getElementById('account-overlay') && !document.getElementById('account-overlay').hidden) renderAccountModalBody();
+}
+
+async function clearAllDownloads() {
+  downloads = {};
+  LS.set('hifz:downloads', downloads);
+  try { await caches.delete(OFFLINE_CACHE); } catch {}
+  refreshDownloadRow();
+  if (document.getElementById('account-overlay') && !document.getElementById('account-overlay').hidden) renderAccountModalBody();
+}
+
+function downloadIconSVG(filled) {
+  return filled
+    ? `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v10.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V3a1 1 0 0 1 1-1z"/><path d="M4 19a1 1 0 0 1 1-1h14a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1z"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>`;
+}
+
+// Renders (or re-renders in place) the small "download for offline" row
+// shown on a surah page — reflects not-downloaded / in-progress / done for
+// the CURRENT reciter, since audio is downloaded per-reciter.
+function downloadRowHTML(s) {
+  if (!offlineSupported()) return '';
+  if (activeDownload && activeDownload.surah === s.number && activeDownload.reciter === reciter) {
+    const pct = activeDownload.total ? Math.round(activeDownload.done / activeDownload.total * 100) : 0;
+    return `<div class="dl-row">
+      <div class="dl-bar"><span style="width:${pct}%"></span></div>
+      <span class="dl-status">${esc(t('downloadingProgress', activeDownload.done, activeDownload.total))}</span>
+      <button class="dl-link" onclick="cancelDownload()">${esc(t('cancel'))}</button>
+    </div>`;
+  }
+  if (isSurahDownloaded(s.number, reciter)) {
+    return `<div class="dl-row">
+      <span class="dl-status dl-done">${downloadIconSVG(true)}${esc(t('downloadedOffline'))}</span>
+      <button class="dl-link" onclick="removeDownload(${s.number}, ${reciter})">${esc(t('removeDownload'))}</button>
+    </div>`;
+  }
+  return `<div class="dl-row">
+    <button class="dl-btn" onclick="downloadSurah(${s.number})">${downloadIconSVG(false)}${esc(t('downloadOffline'))}</button>
+  </div>`;
+}
+function refreshDownloadRow() {
+  const el = document.getElementById('dl-row-wrap');
+  if (el && state.surah) el.innerHTML = downloadRowHTML(state.surah);
+}
+
 function stopAudio() {
   if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   if (audioState.timer) { clearInterval(audioState.timer); audioState.timer = null; }
@@ -1654,6 +1819,7 @@ function setReciter(id) {
     stopAudio();
     playAyah(+n);   // restart the current ayah with the new reciter
   }
+  refreshDownloadRow();   // download status is per-reciter
 }
 
 function wireAudioHandlers(numInSurah) {
@@ -2142,6 +2308,7 @@ function renderSurah() {
         <select class="ctl-select" id="speed" onchange="setSpeed(this.value)">${speedOpts}</select>
       </label>
     </div>
+    <div id="dl-row-wrap">${downloadRowHTML(s)}</div>
     ${mem ? `<div class="hint">${esc(t('memHint'))}</div>` : ''}
     ${mem ? `<div class="mem-cont-row">
       <button class="pg-nav" onclick="openSurah(${s.number - 1})" ${s.number <= 1 ? 'disabled' : ''} aria-label="${esc(t('prevSurah'))}" data-tip="${esc(t('prevSurah'))}">‹</button>
@@ -3160,7 +3327,8 @@ function renderAccountModalBody() {
   if (authUser) {
     body.innerHTML = `
       <p class="account-desc">${esc(t('accountSignedInAs', authUser.email))}</p>
-      <button class="feedback-submit" onclick="doSignOut()">${esc(t('signOut'))}</button>`;
+      <button class="feedback-submit" onclick="doSignOut()">${esc(t('signOut'))}</button>
+      ${downloadsSectionHTML()}`;
   } else {
     body.innerHTML = `
       <p class="account-desc">${esc(t('accountDesc'))}</p>
@@ -3169,11 +3337,37 @@ function renderAccountModalBody() {
         <input type="email" id="account-email" maxlength="200" autocomplete="email">
       </label>
       <button class="feedback-submit" id="account-send" onclick="requestMagicLink()">${esc(t('sendLink'))}</button>
-      <div class="feedback-status" id="account-status" hidden></div>`;
+      <div class="feedback-status" id="account-status" hidden></div>
+      ${downloadsSectionHTML()}`;
     const emailEl = document.getElementById('account-email');
     emailEl.addEventListener('keydown', e => { if (e.key === 'Enter') requestMagicLink(); });
     emailEl.focus();
   }
+}
+
+// "Downloaded for offline" management, shown in the Account modal regardless
+// of sign-in state (downloads are local-device storage, unrelated to sync).
+function downloadsSectionHTML() {
+  const keys = Object.keys(downloads);
+  if (!keys.length) return '';
+  const rows = keys.map(key => {
+    const [surahNum, reciterId] = key.split(':').map(Number);
+    const sInfo = surahList && surahList.find(x => x.number === surahNum);
+    const rc = RECITERS.find(r => r.id === reciterId);
+    const name = sInfo ? (lang === 'ar' ? sInfo.name : sInfo.englishName) : t('ayahLabel', surahNum);
+    const rcName = rc ? (lang === 'ar' ? rc.ar : rc.en) : reciterId;
+    return `<div class="dl-list-row">
+      <span class="dl-list-name">${esc(name)} <span class="dl-list-reciter">— ${esc(rcName)}</span></span>
+      <button class="dl-link" onclick="removeDownload(${surahNum}, ${reciterId})">${esc(t('removeDownload'))}</button>
+    </div>`;
+  }).join('');
+  return `<div class="dl-section">
+    <div class="dl-section-head">
+      <span>${esc(t('downloadsTitle'))}</span>
+      <button class="dl-link" onclick="clearAllDownloads()">${esc(t('clearAllDownloads'))}</button>
+    </div>
+    ${rows}
+  </div>`;
 }
 async function requestMagicLink() {
   const emailEl = document.getElementById('account-email');
@@ -3277,6 +3471,16 @@ applyDir();
 render();
 refreshFeedbackLabels();
 maybeShowFeedbackFab();
+
+// Enables offline use: the app shell loads with zero connectivity, and any
+// surah the user has explicitly downloaded (see downloadSurah()) plays back
+// without a connection. Registered after the first render so it can't delay
+// anything the user is actually looking at.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
 
 // Coming back from the magic-link email: the server redirects to /?auth=...
 (function initAuth() {
