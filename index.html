@@ -1164,7 +1164,9 @@ let state = {
   tafsirAyah: null     // read mode: numberInSurah currently shown in the tafsir panel, or null
 };
 let continuousMode = false;   // read mode: auto-advance recitation across ayahs/pages
-let continuousFailStreak = 0; // consecutive audio-load/play failures during continuous playback
+let continuousFailStreak = 0; // consecutive ayahs that failed even after their own retries
+let ayahRetriesLeft = 0;      // retries left for the CURRENT ayah before it counts as a failure
+let retryTimer = null;        // pending "retry this ayah" timeout, if any
 let rangeFrom = null;         // memorize mode: repeat-range start ayah (null = full surah)
 let rangeTo = null;           // memorize mode: repeat-range end ayah (null = full surah)
 let rangePassesLeft = 0;      // memorize mode: full range repetitions left in the current session
@@ -1514,6 +1516,7 @@ async function loadVerseAudio(reciterId, surah, ayah) {
 }
 
 function stopAudio() {
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   if (audioState.timer) { clearInterval(audioState.timer); audioState.timer = null; }
   if (audio) { audio.pause(); audio.onended = null; audio.onerror = null; audio = null; }
   audioState.key = null;
@@ -1540,11 +1543,15 @@ function wordStartFractions(numInSurah) {
   return starts;
 }
 
-async function playAyah(numInSurah, cont) {
+async function playAyah(numInSurah, cont, isRetry) {
   if (!cont && continuousMode) { continuousMode = false; updateContinuousBtn(); }  // a direct tap plays just this ayah
   const key = state.surah.number + ':' + numInSurah;
   if (audioState.key === key) { stopContinuous(); return; }
   stopAudio();
+  // A retry keeps whatever attempts are left on THIS ayah; a genuinely new
+  // ayah gets a fresh budget — otherwise a retry (which re-enters here)
+  // would reset its own remaining attempts and never actually run out.
+  if (!isRetry) ayahRetriesLeft = 2;
   // In a memorize continuous session the Repeat count applies to the whole
   // range (custom, or the whole surah by default — see rangePassesLeft),
   // not to each ayah individually — otherwise every ayah would ALSO
@@ -1574,10 +1581,14 @@ async function playAyah(numInSurah, cont) {
 // API) or fail to play (CDN error on the file itself). Either used to leave
 // continuousMode dangling "on" with nothing playing and no way to ever
 // advance again, since stopAudio() never touches continuousMode — that's
-// the "continuous reciting gets stuck" bug. Now one bad ayah gets skipped
-// instead of killing the whole session, and only after repeated failures in
-// a row does it actually give up (turning the button off with a clear toast
-// instead of silently leaving the UI showing "still going").
+// the "continuous reciting gets stuck" bug. A failure now retries the SAME
+// ayah (up to 2 extra attempts, with a short backoff) before giving up on
+// it and skipping ahead — most real-world failures are a brief network
+// blip that a retry clears, not a genuinely dead ayah. Only once retries
+// are exhausted does it count toward the fail streak, and only after
+// repeated ayahs in a row fail even after their own retries does it give
+// up entirely (turning the button off with a clear toast instead of
+// silently leaving the UI showing "still going").
 function handlePlaybackFailure(numInSurah) {
   // Several independent failure channels (play()-promise rejection, the
   // element's error event, the stall watchdog) can all point at the same
@@ -1585,8 +1596,16 @@ function handlePlaybackFailure(numInSurah) {
   if (audioState.failureHandled) return;
   audioState.failureHandled = true;
   if (!continuousMode) { toast(t('toastAudioFail')); stopAudio(); return; }
-  continuousFailStreak++;
   stopAudio();
+  if (ayahRetriesLeft > 0) {
+    ayahRetriesLeft--;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      playAyah(numInSurah, true, true);
+    }, 1000);
+    return;
+  }
+  continuousFailStreak++;
   if (continuousFailStreak >= 3) {
     continuousMode = false;
     updateContinuousBtn();
