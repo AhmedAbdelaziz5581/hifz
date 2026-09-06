@@ -2753,9 +2753,7 @@ function ayahCardHTML(a) {
   const revealBtn = mem
     ? `<button class="icon-btn reveal-btn ${fullyShown ? 'on' : ''}" id="eye-${a.numberInSurah}" onclick="revealAll(${a.numberInSurah})" title="${esc(t('showHide'))}">${eyeSVG(fullyShown)}</button>`
     : '';
-  const micBtn = (isIOSDevice() && ayahHasMuqattaat(a.text))
-    ? ''
-    : `<button class="icon-btn mic-btn" id="mic-${a.numberInSurah}" onclick="toggleListen(${a.numberInSurah})" aria-label="${esc(t('listenPractice'))}" data-tip="${esc(t('listenPractice'))}">${micIconSVG()}</button>`;
+  const micBtn = `<button class="icon-btn mic-btn" id="mic-${a.numberInSurah}" onclick="toggleListen(${a.numberInSurah})" aria-label="${esc(t('listenPractice'))}" data-tip="${esc(t('listenPractice'))}">${micIconSVG()}</button>`;
   return `
   <div class="ayah-card ${isMem ? 'done' : ''}" id="ayah-${a.numberInSurah}">
     <div class="ayah-ar" ${mem ? `onclick="revealNext(${a.numberInSurah})"` : ''} id="ar-${a.numberInSurah}">${wordSpans}</div>
@@ -2838,21 +2836,48 @@ function revealAll(numInSurah) {
 }
 
 /* ---------------- Voice recitation practice (memorize mode) ----------------
-   Uses the browser's built-in Speech Recognition to transcribe what the user
-   says and match it word-by-word against the ayah, revealing words as they're
-   correctly recognized. This is word-matching, not real tajweed/pronunciation
-   judgment — the browser has no way to assess recitation quality, only to
-   guess at which words were said. */
-let recog = null;            // active SpeechRecognition instance, or null
+   Records short, voice-activity-segmented clips of the user's recitation and
+   sends each to /api/transcribe (a Groq Whisper proxy — the API key never
+   reaches the client), then fuzzy-matches the transcript word-by-word
+   against the ayah, revealing words as they're correctly recognized. This
+   replaced the browser's built-in SpeechRecognition, which had no usable
+   Arabic acoustic model for Quranic recitation and doesn't exist at all on
+   iOS Safari. This is word-matching, not real tajweed/pronunciation
+   judgment — no ASR can assess recitation quality, only guess at which
+   words were said. */
 let recogAyah = null;        // numberInSurah currently being listened to
 let recogWords = [];         // [{tokens:[...]}] expected spoken tokens per displayed word
 let recogPtr = 0;            // index of the next expected displayed word
 let recogWordSubPtr = 0;     // index of the next expected token within recogWords[recogPtr]
 let recogWrongStreak = 0;    // consecutive mismatches on the current word
-let recogManualStop = false; // guards against auto-restart after an intentional stop
-let recogConsumed = {};      // per result-index: how many of its tokens we've already resolved
 let micContinuousMode = false; // voice practice auto-advancing through the range, ayah after ayah
 let micRangeDone = 0;          // ayahs successfully recited so far in the current continuous session
+
+// The mic stream and voice-activity-detection stay alive for the WHOLE
+// listening session (including every ayah advanced through in continuous
+// mode) — only a genuine stop tears them down. Recreating a getUserMedia
+// stream + AudioContext on every single ayah transition (as would happen if
+// these were reset the way the old per-ayah SpeechRecognition instance was)
+// would add a real stall between ayahs and needlessly re-negotiate the mic.
+let micStream = null;         // getUserMedia MediaStream for the whole session
+let micRecorder = null;       // current segment's MediaRecorder
+let micAudioCtx = null;       // Web Audio context powering volume-based VAD
+let micAnalyser = null;
+let micVadTimer = null;       // setInterval id polling volume for VAD
+let micMimeType = '';
+let micSegmentChunks = [];
+let micSpokeInSegment = false;
+let micLastLoudAt = 0;
+let micSegmentStartedAt = 0;
+let micErrorShown = false;    // show a transcription-failure toast once per session, not per segment
+
+const MIC_SILENCE_MS = 700;        // pause length that ends a spoken segment
+const MIC_MAX_SEGMENT_MS = 15000;  // safety cap so one very long segment can't run forever
+const MIC_VOLUME_THRESHOLD = 0.02;
+
+function micSupported() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+}
 
 // Some surahs open with "disconnected letters" (muqatta'at) — e.g. الم, كهيعص,
 // حم — displayed as one joined token but recited letter-by-letter (aleef,
@@ -2874,21 +2899,6 @@ function expectedTokensForWord(word) {
   return [norm];
 }
 
-function ayahHasMuqattaat(text) {
-  return text.split(' ').some(w => MUQATTAAT_WORDS.has(normalizeArSearch(w)));
-}
-
-// iOS's speech-recognition engine has no usable acoustic model for the
-// elongated single-letter recitation muqatta'at ayahs require — it hears
-// things like "aleef" (أَلِف) as literal digits, not as a mismatched but
-// close word. No amount of matching tolerance can bridge that, so the mic
-// is hidden for these ayahs on iOS specifically; desktop browsers (Chrome)
-// handle them fine via the letter-name matching above and are unaffected.
-function isIOSDevice() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-}
-
 // Temporary on-screen debug trace for diagnosing mic issues on devices
 // without attachable devtools (e.g. iPhone Safari) — visit with ?micdebug=1.
 const micDebugOn = location.search.includes('micdebug');
@@ -2899,10 +2909,6 @@ function micDebug(msg) {
   el.hidden = false;
   el.textContent += msg + '\n';
   el.scrollTop = el.scrollHeight;
-}
-
-function speechRecognitionCtor() {
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
 // Small edit-distance tolerance so minor ASR misrecognition doesn't always
@@ -2932,69 +2938,164 @@ function toggleListen(numInSurah) {
   else startListening(numInSurah);
 }
 
-function startListening(numInSurah) {
-  const SR = speechRecognitionCtor();
-  if (!SR) { toast(t('micUnsupported')); return; }
+// Sets/resets the matching state for a given ayah WITHOUT touching the mic
+// stream/recorder — used both for a session's first ayah and (via
+// advanceListen) every subsequent ayah in a continuous session, so the
+// already-running recording loop just starts being matched against a new
+// target instead of restarting the mic each time.
+function beginAyahRecognition(numInSurah) {
   const a = state.surah.ayahs.find(x => x.numberInSurah === numInSurah);
-  if (!a) return;
-
-  stopAudio();   // also stops any other in-progress listening session
-
+  const prevAyah = recogAyah;
   recogAyah = numInSurah;
   recogWords = a.text.split(' ').map(w => ({ tokens: expectedTokensForWord(w) }));
   micDebug('--- started ayah ' + numInSurah + ' — expecting: ' + recogWords.map(w => w.tokens.join('/')).join(' | '));
   recogPtr = 0;
   recogWordSubPtr = 0;
   recogWrongStreak = 0;
-  recogManualStop = false;
-  recogConsumed = {};
   setRevealCount(numInSurah, 0);
-
-  recog = new SR();
-  recog.lang = 'ar-SA';
-  recog.continuous = true;
-  recog.interimResults = true;
-  // Chrome's ar-SA model is tuned for everyday conversational Arabic, not
-  // Quranic recitation — its top guess is often wrong even when the
-  // correct word shows up further down its own alternatives list. Asking
-  // for more candidates and checking all of them (see handleRecogResult)
-  // catches those without needing a different recognition engine.
-  recog.maxAlternatives = 5;
-  recog.onresult = e => handleRecogResult(e, numInSurah);
-  recog.onerror = e => handleRecogError(e, numInSurah);
-  recog.onend = () => {
-    // Some browsers end continuous recognition after a silence/time limit —
-    // restart transparently unless the user actually asked to stop.
-    if (recog && recogAyah === numInSurah && !recogManualStop) {
-      try { recog.start(); } catch { stopListening(); }
-    }
-  };
-
+  if (prevAyah != null && prevAyah !== numInSurah) updateMicBtn(prevAyah, false);
   updateMicBtn(numInSurah, true);
+}
+
+async function startListening(numInSurah) {
+  if (!micSupported()) { toast(t('micUnsupported')); return; }
+  const a = state.surah.ayahs.find(x => x.numberInSurah === numInSurah);
+  if (!a) return;
+
+  stopAudio();   // stops any playing audio, and any other in-progress mic session
+  beginAyahRecognition(numInSurah);
   // A per-ayah "listening" toast would spam the screen every time a
   // continuous range session auto-advances — the pulsing range button
   // already shows it's listening throughout, so only toast for a
   // single-ayah session.
   if (!micContinuousMode) toast(t('micListening'));
-  try { recog.start(); } catch { toast(t('micDenied')); stopListening(); }
+
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    toast(t('micDenied'));
+    stopListening();
+    return;
+  }
+  if (recogAyah !== numInSurah) return; // stopped/moved on while permission was pending
+
+  micErrorShown = false;
+  setupMicVad();
+  startMicSegment(numInSurah);
 }
 
-// Tears down the active recognition instance only. `clearContinuous` decides
-// whether that also cancels an in-progress range session: startListening()
-// calls this indirectly via stopAudio() on every ayah transition (including
-// mid-continuous-session ones), so THAT path must leave micContinuousMode
-// alone — only an actual user-initiated stop (or a real error) should cancel
-// the whole session, not the routine per-ayah teardown/rebuild.
-function stopRecogInstance(clearContinuous) {
-  recogManualStop = true;
-  const prevAyah = recogAyah;
-  const r = recog;
-  recog = null;
-  recogAyah = null;
-  if (r) {
-    r.onresult = null; r.onend = null; r.onerror = null;
-    try { r.stop(); } catch {}
+function pickMicMimeType() {
+  if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+  return candidates.find(c => MediaRecorder.isTypeSupported(c)) || '';
+}
+
+// Volume-based voice-activity detection: polls the mic's RMS level to
+// decide when a spoken segment has ended (a real pause after real speech),
+// so we're not sending silence to the transcription API or cutting the
+// user off mid-word. Runs for the whole session, independent of which ayah
+// is currently the match target.
+function setupMicVad() {
+  if (micAudioCtx) return; // already running for this session
+  micAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = micAudioCtx.createMediaStreamSource(micStream);
+  micAnalyser = micAudioCtx.createAnalyser();
+  micAnalyser.fftSize = 512;
+  source.connect(micAnalyser);
+  const data = new Uint8Array(micAnalyser.fftSize);
+
+  micVadTimer = setInterval(() => {
+    if (!recogAyah) return;
+    micAnalyser.getByteTimeDomainData(data);
+    let sumSq = 0;
+    for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sumSq += v * v; }
+    const rms = Math.sqrt(sumSq / data.length);
+    const now = Date.now();
+    if (rms > MIC_VOLUME_THRESHOLD) { micLastLoudAt = now; micSpokeInSegment = true; }
+    if (!micRecorder) return;
+    const segAge = now - micSegmentStartedAt;
+    const silenceAge = now - micLastLoudAt;
+    if ((micSpokeInSegment && silenceAge > MIC_SILENCE_MS) || segAge > MIC_MAX_SEGMENT_MS) {
+      finishMicSegment();
+    }
+  }, 100);
+}
+
+// Starts recording one segment (one utterance, roughly — VAD decides where
+// it ends). `onstop` sends it off for transcription and immediately starts
+// the next segment, as long as we're still listening to something —
+// segments are per-utterance, not per-ayah, so a continuous session just
+// keeps recording straight through an ayah transition.
+function startMicSegment(numInSurah) {
+  if (!micStream) return;
+  micSegmentChunks = [];
+  micSpokeInSegment = false;
+  micLastLoudAt = Date.now();
+  micSegmentStartedAt = Date.now();
+  micMimeType = pickMicMimeType();
+  try {
+    micRecorder = micMimeType ? new MediaRecorder(micStream, { mimeType: micMimeType }) : new MediaRecorder(micStream);
+  } catch {
+    toast(t('micError'));
+    stopListening();
+    return;
   }
+  micRecorder.ondataavailable = e => { if (e.data && e.data.size) micSegmentChunks.push(e.data); };
+  micRecorder.onstop = () => {
+    const chunks = micSegmentChunks;
+    micSegmentChunks = [];
+    const hadSpeech = micSpokeInSegment;
+    micRecorder = null;
+    if (recogAyah == null) return; // session ended while this segment was finishing
+    if (hadSpeech && chunks.length) {
+      transcribeAndProcess(recogAyah, new Blob(chunks, { type: micMimeType || 'audio/webm' }));
+    }
+    if (recogAyah != null) startMicSegment(recogAyah);
+  };
+  micRecorder.start();
+}
+
+function finishMicSegment() {
+  if (micRecorder && micRecorder.state !== 'inactive') {
+    try { micRecorder.stop(); } catch {}
+  }
+}
+
+async function transcribeAndProcess(numInSurah, blob) {
+  const ext = micMimeType.includes('mp4') ? 'mp4' : micMimeType.includes('ogg') ? 'ogg' : 'webm';
+  const form = new FormData();
+  form.append('audio', blob, 'audio.' + ext);
+  let text = null;
+  try {
+    const res = await fetch('/api/transcribe', { method: 'POST', body: form });
+    if (res.ok) {
+      const data = await res.json();
+      text = data.text;
+    } else if (!micErrorShown) {
+      micErrorShown = true;
+      toast(t('micError'));
+    }
+  } catch {
+    if (!micErrorShown) { micErrorShown = true; toast(t('micError')); }
+  }
+  if (recogAyah !== numInSurah) return; // moved on while the request was in flight
+  micDebug('heard: ' + (text || '(nothing)'));
+  if (text != null) processTranscript(numInSurah, text);
+}
+
+// Tears down the mic stream/recorder/VAD for the whole session. `clearContinuous`
+// decides whether that also cancels an in-progress range session — a real
+// error or an explicit stop should, but this alone doesn't distinguish that
+// from the routine "moving to the next ayah" case since (unlike the old
+// per-ayah SpeechRecognition instance) the mic session now spans the whole
+// continuous run; see advanceListen/beginAyahRecognition for that path.
+function stopRecogInstance(clearContinuous) {
+  const prevAyah = recogAyah;
+  recogAyah = null;
+  if (micVadTimer) { clearInterval(micVadTimer); micVadTimer = null; }
+  if (micRecorder) { try { micRecorder.onstop = null; micRecorder.stop(); } catch {} micRecorder = null; }
+  if (micAudioCtx) { try { micAudioCtx.close(); } catch {} micAudioCtx = null; micAnalyser = null; }
+  if (micStream) { micStream.getTracks().forEach(tr => tr.stop()); micStream = null; }
   if (prevAyah != null) updateMicBtn(prevAyah, false);
   if (clearContinuous && micContinuousMode) {
     micContinuousMode = false;
@@ -3005,14 +3106,11 @@ function stopListening() {
   stopRecogInstance(true);
 }
 
-// First ayah at or after `from` (up to `rangeEnd`) that voice practice can
-// actually attempt — skips muqatta'at ayahs on iOS (see isIOSDevice above),
-// same as the per-ayah mic button being hidden there. Returns null if
-// nothing in the remaining range is listenable.
+// First ayah at or after `from` (up to `rangeEnd`) that exists in this surah.
+// Returns null once the range is exhausted.
 function nextListenableAyah(from, rangeEnd) {
   for (let n = from; n <= rangeEnd; n++) {
-    const a = state.surah.ayahs.find(x => x.numberInSurah === n);
-    if (a && !(isIOSDevice() && ayahHasMuqattaat(a.text))) return n;
+    if (state.surah.ayahs.some(x => x.numberInSurah === n)) return n;
   }
   return null;
 }
@@ -3020,8 +3118,7 @@ function nextListenableAyah(from, rangeEnd) {
 function toggleListenSurah() {
   if (micContinuousMode) { stopListening(); return; }
   if (!state.surah) return;
-  const SR = speechRecognitionCtor();
-  if (!SR) { toast(t('micUnsupported')); return; }
+  if (!micSupported()) { toast(t('micUnsupported')); return; }
   const rangeEnd = rangeTo || state.surah.ayahs.length;
   const startNum = nextListenableAyah(rangeFrom || 1, rangeEnd);
   if (startNum == null) { toast(t('micUnsupported')); return; }
@@ -3036,10 +3133,8 @@ function toggleListenSurah() {
 
 // Move voice practice on to the next ayah in the range without leaving
 // continuous mode — mirrors advanceContinuous() for audio playback, but
-// swaps the recognition target instead of restarting an <audio> element.
-// startListening() tears down the previous ayah's recog instance itself
-// (via stopAudio -> stopRecogInstance(false)), so this only needs to decide
-// where to go next.
+// just repoints the matching state; the mic stream and recording loop keep
+// running straight through (see beginAyahRecognition's comment).
 function advanceListen(numInSurah) {
   micRangeDone++;
   const rangeEnd = rangeTo || state.surah.ayahs.length;
@@ -3051,7 +3146,7 @@ function advanceListen(numInSurah) {
     toast(t('micSurahDone', micRangeDone));
     return;
   }
-  startListening(nextNum);
+  beginAyahRecognition(nextNum);
   const card = document.getElementById('ayah-' + nextNum);
   if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
@@ -3080,92 +3175,46 @@ function isAyahRecognitionDone(numInSurah) {
   return true;
 }
 
-function handleRecogResult(e, numInSurah) {
+// Runs one segment's transcript through the SAME word-matching state
+// machine the old live SpeechRecognition results drove — the only thing
+// that changed is where the tokens come from. A batch transcript has no
+// "interim" concept (unlike streaming results, it's always final), and
+// there's exactly one candidate per segment rather than several ranked
+// alternatives, so this is considerably simpler than the old per-result,
+// per-alternative loop.
+function processTranscript(numInSurah, transcriptText) {
   if (recogAyah !== numInSurah) return;
   skipEmptyExpectedWords(numInSurah);
   if (isAyahRecognitionDone(numInSurah)) return;
-  for (let i = e.resultIndex; i < e.results.length; i++) {
-    const res = e.results[i];
-    // One token array per recognition alternative (top guess first). The
-    // top guess drives how far we've "consumed" this result, but a match
-    // on ANY alternative counts — Chrome's ar-SA model frequently mishears
-    // the top guess for Quranic words that a lower-ranked alternative
-    // still got right.
-    const altTokenLists = [];
-    for (let a = 0; a < res.length; a++) {
-      altTokenLists.push((res[a].transcript || '').trim().split(/\s+/).filter(Boolean).map(w => normalizeArSearch(w)));
-    }
-    const tokens = altTokenLists[0];
-    if (res.isFinal) {
-      const expectedTokens = recogWords[recogPtr] && recogWords[recogPtr].tokens;
-      const expectedTok = expectedTokens ? expectedTokens[recogWordSubPtr] : null;
-      const firstHeard = tokens[0] || '';
-      micDebug(JSON.stringify({
-        resultIndex: i,
-        alts: altTokenLists,
-        consumedBefore: recogConsumed[i] || 0,
-        recogPtr, recogWordSubPtr,
-        expected: expectedTok,
-        firstHeardCodes: [...firstHeard].map(c => c.codePointAt(0).toString(16)),
-        expectedCodes: expectedTok ? [...expectedTok].map(c => c.codePointAt(0).toString(16)) : null
-      }));
-    }
-    let consumed = recogConsumed[i] || 0;
-    // Interim results grow as the engine refines its guess for the SAME
-    // utterance, so only the tokens past what we've already resolved for
-    // this result index are new. A match advances immediately (this is
-    // what makes the reveal track live speech instead of only updating
-    // once every pause, when a "final" result finally arrives). A mismatch
-    // is only treated as a genuine wrong word once the result is final —
-    // an interim guess is still too unstable to judge, so we just wait for
-    // more audio (or the final) to resolve it instead of flashing "wrong"
-    // on a word that was only briefly misheard mid-recognition.
-    while (consumed < tokens.length && recogPtr < recogWords.length) {
-      const expectedTokens = recogWords[recogPtr].tokens;
-      const expectedTok = expectedTokens[recogWordSubPtr];
-      const matched = altTokenLists.some(list => wordsMatch(list[consumed], expectedTok));
-      if (matched) {
-        recogWrongStreak = 0;
-        consumed++;
-        recogWordSubPtr++;
-        // Muqatta'at words expect several spoken letter-names for one
-        // displayed word — only advance to the next word once all of them
-        // (e.g. aleef, laam, meem) have been matched.
-        if (recogWordSubPtr >= expectedTokens.length) {
-          recogPtr++;
-          recogWordSubPtr = 0;
-          setRevealCount(numInSurah, recogPtr);
-          skipEmptyExpectedWords(numInSurah);
-          if (isAyahRecognitionDone(numInSurah)) return;
-        }
-      } else if (res.isFinal) {
-        recogWrongStreak++;
-        flashWrongWord(numInSurah, recogPtr);
-        if (recogWrongStreak === 3) {
-          const original = state.surah.ayahs.find(x => x.numberInSurah === numInSurah).text.split(' ')[recogPtr];
-          toast(t('micTryWord', original));
-        }
-        consumed++;   // a final result won't change further — move past it, don't loop on it forever
-      } else {
-        break;        // still interim — give it a chance to refine before judging
+  const tokens = (transcriptText || '').trim().split(/\s+/).filter(Boolean).map(w => normalizeArSearch(w));
+  let consumed = 0;
+  while (consumed < tokens.length && recogPtr < recogWords.length) {
+    const expectedTokens = recogWords[recogPtr].tokens;
+    const expectedTok = expectedTokens[recogWordSubPtr];
+    const matched = wordsMatch(tokens[consumed], expectedTok);
+    if (matched) {
+      recogWrongStreak = 0;
+      consumed++;
+      recogWordSubPtr++;
+      // Muqatta'at words expect several spoken letter-names for one
+      // displayed word — only advance to the next word once all of them
+      // (e.g. aleef, laam, meem) have been matched.
+      if (recogWordSubPtr >= expectedTokens.length) {
+        recogPtr++;
+        recogWordSubPtr = 0;
+        setRevealCount(numInSurah, recogPtr);
+        skipEmptyExpectedWords(numInSurah);
+        if (isAyahRecognitionDone(numInSurah)) return;
       }
+    } else {
+      recogWrongStreak++;
+      flashWrongWord(numInSurah, recogPtr);
+      if (recogWrongStreak === 3) {
+        const original = state.surah.ayahs.find(x => x.numberInSurah === numInSurah).text.split(' ')[recogPtr];
+        toast(t('micTryWord', original));
+      }
+      consumed++;   // move past this heard token — a finished transcript won't "refine" like interim results did
     }
-    recogConsumed[i] = consumed;
-    if (isAyahRecognitionDone(numInSurah)) return;
-  }
-}
-
-function handleRecogError(e, numInSurah) {
-  if (recogAyah !== numInSurah) return;
-  micDebug('error: ' + e.error);
-  if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-    toast(t('micDenied'));
-    stopListening();
-  } else if (e.error === 'no-speech' || e.error === 'aborted') {
-    // benign — onend handles restarting the session
-  } else {
-    toast(t('micError'));
-    stopListening();
   }
 }
 
