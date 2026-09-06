@@ -9,18 +9,25 @@
 // CONTENT_CACHE. This worker's own fetch handler only ever READS from it.
 const SHELL_CACHE = 'hifz-shell-v1';
 const CONTENT_CACHE = 'hifz-offline-v1';
-const FONT_CACHE = 'hifz-fonts-v1';
 
 const CONTENT_HOSTS = [
   'api.alquran.cloud', 'api.quran.com', 'verses.quran.com',
   'mirrors.quranicaudio.com', 'cdn.islamic.network'
 ];
-const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
+
+// Fonts are self-hosted (not a third-party CDN — see index.html's <head>
+// comment), so they're part of the app shell itself now, not a separate
+// cross-origin case to special-case here.
+const SHELL_URLS = [
+  '/', '/index.html',
+  '/fonts/amiri-quran-arabic.woff2', '/fonts/amiri-quran-latin.woff2',
+  '/fonts/outfit-latin-ext.woff2', '/fonts/outfit-latin.woff2'
+];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(SHELL_CACHE).then(cache => cache.addAll(['/', '/index.html']).catch(() => {}))
+    caches.open(SHELL_CACHE).then(cache => cache.addAll(SHELL_URLS).catch(() => {}))
   );
 });
 
@@ -48,22 +55,6 @@ self.addEventListener('fetch', event => {
         caches.open(SHELL_CACHE).then(cache => cache.put('/index.html', copy));
         return res;
       }).catch(() => caches.match('/index.html', { cacheName: SHELL_CACHE }))
-    );
-    return;
-  }
-
-  // Fonts: small, essential for correct Arabic rendering, and effectively
-  // static — safe to cache opportunistically (unlike audio, this can't
-  // grow into meaningful storage use).
-  if (FONT_HOSTS.includes(url.hostname)) {
-    event.respondWith(
-      caches.open(FONT_CACHE).then(async cache => {
-        const cached = await cache.match(req);
-        if (cached) return cached;
-        const res = await fetch(req);
-        cache.put(req, res.clone());
-        return res;
-      }).catch(() => fetch(req))
     );
     return;
   }
