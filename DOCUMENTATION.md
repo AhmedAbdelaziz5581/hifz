@@ -226,7 +226,7 @@ storage is unavailable, e.g. private browsing).
 | `hifz:cache:v4:{n}` | `Surah` | Full cached surah `n` (text, translation, juz, page per ayah). Version-suffixed (`v4`) — bump this suffix whenever the cached shape changes, so old cached entries are transparently refetched instead of breaking. |
 | `hifz:va` | `{ "reciterId:surah:ayah": { url, starts } }` | Cached audio URL + per-word timing, so replays/revisits don't refetch |
 | `hifz:segments` | *(legacy)* | Superseded by `hifz:va`; harmless if still present from an older version |
-| `hifz:tafsirSrc` | number | Selected Tafsir source's Quran.com resource ID (default `14` = Ibn Kathir) |
+| `hifz:tafsirSrc` | number | Selected Tafsir source's Quran.com resource ID (default `16` = Al-Muyassar) |
 | `hifz:tafsirCache` | `{ "tafsirId:surah:ayah": "<sanitized HTML>" }` | Cached, sanitized Tafsir text per source+ayah, so re-opening the same ayah's Tafsir doesn't refetch |
 
 **Practical implications:**
@@ -276,8 +276,8 @@ commentary — selectable via the `TAFSIRS` list:
 
 | Resource ID | Author | Notes |
 |---|---|---|
-| `14` (default) | ابن كثير — Ibn Kathir | Widely cited classical tafsir |
-| `16` | الميسر — Al-Muyassar | Modern, concise, King Fahd Complex-produced |
+| `14` | ابن كثير — Ibn Kathir | Widely cited classical tafsir |
+| `16` (default) | الميسر — Al-Muyassar | Modern, concise, King Fahd Complex-produced — shorter per-ayah commentary, chosen as default since sources like Ibn Kathir attach a full surah introduction to the first ayah |
 | `91` | السعدي — As-Sa'di | Modern classical, plain-language |
 | `15` | الطبري — At-Tabari | Early classical, foundational |
 
