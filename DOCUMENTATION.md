@@ -39,10 +39,12 @@ no build step, no framework, no bundler). It has two purposes:
   word, and audio playback reveals words in sync with the actual recitation timing, for
   active-recall style memorization drills.
 
-There is **no backend and no build process**. All Quran text, translation, and audio come
-from free public APIs, fetched directly from the browser and cached in `localStorage`. All
-user progress (memorized ayahs, bookmark, preferences) lives only in the browser's
-`localStorage` — there is no account system and no server-side storage.
+The core reading/memorization experience needs **no backend and no build process** — Quran
+text, translation, and audio come from free public APIs, fetched directly from the browser and
+cached in `localStorage`. User progress (memorized ayahs, bookmark, preferences) defaults to
+the browser's `localStorage`; a lightweight Cloudflare Pages Functions backend (`functions/`)
+exists alongside it for the optional magic-link account/cross-device sync, plus feedback and
+admin — see §11.
 
 ```
 ┌─────────────────────────────┐        ┌───────────────────────────┐
@@ -228,8 +230,8 @@ storage is unavailable, e.g. private browsing).
 | `hifz:tafsirCache` | `{ "tafsirId:surah:ayah": "<sanitized HTML>" }` | Cached, sanitized Tafsir text per source+ayah, so re-opening the same ayah's Tafsir doesn't refetch |
 
 **Practical implications:**
-- Progress does **not** sync across devices or browsers — it's tied to one browser's local
-  storage on one device.
+- Progress syncs across devices only if you sign in via the magic-link account feature
+  (§11) — without signing in, it stays tied to one browser's local storage on one device.
 - Clearing browser data (or private/incognito mode) wipes all progress.
 - There is no way for the app itself to "reset" a user remotely — it's all local.
 
@@ -614,9 +616,16 @@ is fetched once and cached, so revisiting it later is instant.
 
 ## 11. Known limitations
 
-- **No account / no cross-device sync** — progress is per-browser, local-only.
-- **No offline mode** — Quran text and audio are fetched from live APIs on first use (though
-  cached afterward in `localStorage` for repeat visits of the same surah/ayah/reciter).
+- **Account sync is opt-in, not automatic** — without signing in, progress is per-browser,
+  local-only. Signing in via a magic-link email (`/api/auth/request-link` →
+  `/api/auth/verify`) enables cross-device sync: `pushState()`/`pullState()` mirror
+  memorized ayahs, bookmark, language, reciter, speed, and Tafsir source through
+  `/api/state`, so progress follows the account rather than the browser.
+- **Offline mode covers downloaded surahs, not the whole app** — Quran text and audio are
+  fetched from live APIs on first use and cached in `localStorage`/Cache API for repeat
+  visits, but a surah must be explicitly downloaded (`downloadSurah()`, per-reciter, via
+  the Cache API + `sw.js` service worker) before its audio is available with no network.
+  Browsers without `caches`/`serviceWorker` support fall back to online-only playback.
 - **DNS/CI write access boundary** — the Cloudflare CLI session used to configure hosting only
   has `zone:read`, not DNS-write or API-token-creation permissions; those specific steps (DNS
   record edits, API token creation) must be done via the Cloudflare dashboard, not automated
